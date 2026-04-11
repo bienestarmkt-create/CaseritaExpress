@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npx tsc:*)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(npx vite:*)",
+      "Bash(npm run:*)",
+      "Bash(curl -s 'https://gmfjnzwmfcufgolptaoi.supabase.co/rest/v1/alojamientos?select=id,nombre,ciudad,tipo,usuario_id&limit=20' -H 'apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdtZmpuendtZmN1ZmdvbHB0YW9pIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5NTQwODUsImV4cCI6MjA4OTUzMDA4NX0.gX7Z_zH5nSkNW7WXeL6D9_g48cYvYwVZQYtWeR3MViI')",
+      "Bash(python -m json.tool)",
+      "Bash(curl -s \"https://gmfjnzwmfcufgolptaoi.supabase.co/rest/v1/alojamientos?select=id,nombre,ciudad,tipo,usuario_id&limit=20\" -H \"apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdtZmpuendtZmN1ZmdvbHB0YW9pIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5NTQwODUsImV4cCI6MjA4OTUzMDA4NX0.gX7Z_zH5nSkNW7WXeL6D9_g48cYvYwVZQYtWeR3MViI\")",
+      "Bash(curl:*)",
+      "Bash(code:*)",
+      "Bash(gh auth:*)",
+      "Bash(winget install:*)",
+      "Bash(cmd.exe:*)",
+      "Bash(/c/Program Files/GitHub CLI/gh.exe auth:*)",
+      "Bash(/c/Program Files/GitHub CLI/gh.exe repo:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m ':*)"
+    ]
+  }
+}
