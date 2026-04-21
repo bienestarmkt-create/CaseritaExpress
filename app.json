@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "CaseritaExpress",
-    "slug": "CaseritaExpress",
+    "slug": "caseritaexpress",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -25,7 +25,11 @@
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/favicon.png",
+      "name": "Caserita Express",
+      "shortName": "Caserita",
+      "themeColor": "#6B21A8",
+      "backgroundColor": "#1E0A3C"
     },
     "plugins": [
       "expo-router",
@@ -45,6 +49,13 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "3e4fe1a5-2f8b-44e6-8a84-a2c02eca12d9"
+      }
+    },
+    "owner": "caseritaexpress-organization"
   }
 }
