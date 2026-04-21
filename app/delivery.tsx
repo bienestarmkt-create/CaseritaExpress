@@ -6,7 +6,7 @@ import { useCarrito } from '../context/CarritoContext';
 import { supabase } from '../lib/supabase';
 
 const CATEGORIAS = [
-  { id: 1, nombre: 'Restaurantes', emoji: '🍽' },
+  { id: 1, nombre: 'Restaurantes', emoji: '🍽️' },
   { id: 2, nombre: 'Supermercados', emoji: '🛒' },
   { id: 3, nombre: 'Farmacias', emoji: '💊' },
   { id: 4, nombre: 'Bebidas', emoji: '🥤' },
@@ -14,11 +14,14 @@ const CATEGORIAS = [
   { id: 6, nombre: 'Heladerías', emoji: '🍦' },
 ];
 
+const CIUDADES = ['Todas', 'Tarija', 'La Paz', 'Santa Cruz', 'Cochabamba', 'Oruro', 'Potosí', 'Sucre', 'Trinidad', 'Cobija'];
+
 export default function DeliveryScreen() {
   const router = useRouter();
   const { agregarItem, quitarItem, getCantidad, totalItems } = useCarrito();
   const [busqueda, setBusqueda] = useState('');
   const [categoriaActiva, setCategoriaActiva] = useState('Restaurantes');
+  const [ciudadActiva, setCiudadActiva] = useState('Todas');
   const [restauranteActivo, setRestauranteActivo] = useState<string | null>(null);
   const [restaurantes, setRestaurantes] = useState<any[]>([]);
   const [productos, setProductos] = useState<any[]>([]);
@@ -37,9 +40,11 @@ export default function DeliveryScreen() {
     setCargando(false);
   };
 
-  const restaurantesFiltrados = restaurantes.filter(r =>
-    r.nombre.toLowerCase().includes(busqueda.toLowerCase())
-  );
+  const restaurantesFiltrados = restaurantes.filter(r => {
+    const coincideBusqueda = r.nombre.toLowerCase().includes(busqueda.toLowerCase());
+    const coincideCiudad = ciudadActiva === 'Todas' || r.ciudad === ciudadActiva;
+    return coincideBusqueda && coincideCiudad;
+  });
 
   return (
     <View style={styles.container}>
@@ -49,7 +54,7 @@ export default function DeliveryScreen() {
         </TouchableOpacity>
         <View style={styles.headerRow}>
           <View>
-            <Text style={styles.headerTitle}>🍔 Delivery</Text>
+            <Text style={styles.headerTitle}>🛵 Delivery</Text>
             <Text style={styles.headerSub}>Rápido y confiable en Bolivia</Text>
           </View>
           {totalItems > 0 && (
@@ -72,6 +77,20 @@ export default function DeliveryScreen() {
           />
         </View>
       </LinearGradient>
+
+      {/* Selector de ciudad */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.ciudadesBar} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
+        {CIUDADES.map(ciudad => (
+          <TouchableOpacity
+            key={ciudad}
+            onPress={() => setCiudadActiva(ciudad)}
+            style={[styles.ciudadBtn, ciudadActiva === ciudad && styles.ciudadBtnActivo]}>
+            <Text style={[styles.ciudadText, ciudadActiva === ciudad && styles.ciudadTextActivo]}>
+              {ciudad === 'Todas' ? '📍 Todas' : `🏙️ ${ciudad}`}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.banner}>
@@ -97,7 +116,9 @@ export default function DeliveryScreen() {
           ))}
         </ScrollView>
 
-        <Text style={styles.sectionTitle}>Cerca de ti</Text>
+        <Text style={styles.sectionTitle}>
+          {ciudadActiva === 'Todas' ? 'Cerca de ti' : `En ${ciudadActiva}`}
+        </Text>
 
         {cargando ? (
           <View style={styles.loadingBox}>
@@ -107,7 +128,7 @@ export default function DeliveryScreen() {
         ) : restaurantesFiltrados.length === 0 ? (
           <View style={styles.emptyBox}>
             <Text style={styles.emptyEmoji}>🍽️</Text>
-            <Text style={styles.emptyText}>No se encontraron restaurantes</Text>
+            <Text style={styles.emptyText}>No se encontraron restaurantes{ciudadActiva !== 'Todas' ? ` en ${ciudadActiva}` : ''}</Text>
           </View>
         ) : (
           restaurantesFiltrados.map(rest => (
@@ -127,6 +148,7 @@ export default function DeliveryScreen() {
                   <View style={styles.restMeta}>
                     <Text style={styles.restRating}>⭐ {rest.rating || '4.5'}</Text>
                     <Text style={styles.restPrecio}>Bs. 8 envío</Text>
+                    {rest.ciudad && <Text style={styles.restCiudad}>📍 {rest.ciudad}</Text>}
                   </View>
                 </View>
                 <Text style={styles.restArrow}>{restauranteActivo === rest.id ? '▲' : '▼'}</Text>
@@ -134,7 +156,7 @@ export default function DeliveryScreen() {
 
               {restauranteActivo === rest.id && (
                 <View style={styles.platosBox}>
-                  <Text style={styles.platosTitle}>🍽️ Menú</Text>
+                  <Text style={styles.platosTitle}>🍴 Menú</Text>
                   {productos.filter(p => p.negocio_id === rest.id).length === 0 ? (
                     <Text style={styles.emptyMenuText}>Sin productos disponibles</Text>
                   ) : (
@@ -205,6 +227,11 @@ const styles = StyleSheet.create({
   carritoBadgeText: { fontSize: 11, fontWeight: '800', color: '#F97316' },
   searchBox: { flexDirection: 'row', backgroundColor: '#FFF', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, alignItems: 'center' },
   searchInput: { flex: 1, fontSize: 15, color: '#1E0A3C' },
+  ciudadesBar: { paddingVertical: 10, maxHeight: 52, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
+  ciudadBtn: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#E5E7EB' },
+  ciudadBtnActivo: { backgroundColor: '#F97316', borderColor: '#F97316' },
+  ciudadText: { fontSize: 12, color: '#6B7280', fontWeight: '600' },
+  ciudadTextActivo: { color: '#FFF' },
   content: { flex: 1, padding: 16 },
   banner: { flexDirection: 'row', backgroundColor: '#FFF7ED', borderRadius: 16, padding: 16, marginBottom: 20, alignItems: 'center', gap: 12, borderWidth: 1, borderColor: '#FED7AA' },
   bannerEmoji: { fontSize: 32 },
@@ -221,7 +248,7 @@ const styles = StyleSheet.create({
   loadingText: { marginTop: 12, color: '#6B7280', fontSize: 14 },
   emptyBox: { alignItems: 'center', paddingVertical: 40 },
   emptyEmoji: { fontSize: 48, marginBottom: 12 },
-  emptyText: { color: '#6B7280', fontSize: 15 },
+  emptyText: { color: '#6B7280', fontSize: 15, textAlign: 'center' },
   emptyMenuText: { color: '#9CA3AF', fontSize: 13, textAlign: 'center', paddingVertical: 8 },
   restCard: { backgroundColor: '#FFF', borderRadius: 20, marginBottom: 12, elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.1, shadowRadius: 8, overflow: 'hidden' },
   restImagen: { height: 160, width: '100%' },
@@ -229,9 +256,10 @@ const styles = StyleSheet.create({
   restInfo: { flex: 1 },
   restNombre: { fontSize: 16, fontWeight: '700', color: '#1E0A3C', marginBottom: 4 },
   restTipo: { fontSize: 13, color: '#9CA3AF', marginBottom: 6 },
-  restMeta: { flexDirection: 'row', gap: 12 },
+  restMeta: { flexDirection: 'row', gap: 12, flexWrap: 'wrap' },
   restPrecio: { fontSize: 12, color: '#F97316', fontWeight: '600' },
   restRating: { fontSize: 12, color: '#6B7280' },
+  restCiudad: { fontSize: 12, color: '#9CA3AF' },
   restArrow: { fontSize: 12, color: '#9CA3AF', marginLeft: 8 },
   platosBox: { borderTopWidth: 1, borderTopColor: '#F3F4F6', padding: 16 },
   platosTitle: { fontSize: 15, fontWeight: '700', color: '#1E0A3C', marginBottom: 12 },
@@ -252,3 +280,4 @@ const styles = StyleSheet.create({
   footerGradient: { padding: 18, alignItems: 'center' },
   footerText: { color: '#FFF', fontSize: 17, fontWeight: '800' },
 });
+

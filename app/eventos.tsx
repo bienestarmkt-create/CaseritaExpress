@@ -5,12 +5,15 @@ import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacit
 import { useCarrito } from '../context/CarritoContext';
 import { supabase } from '../lib/supabase';
 
+const CIUDADES = ['Todas', 'Tarija', 'La Paz', 'Santa Cruz', 'Cochabamba', 'Oruro', 'Potosí', 'Sucre', 'Trinidad', 'Cobija'];
+
 export default function EventosScreen() {
   const router = useRouter();
   const { agregarItem, totalItems } = useCarrito();
   const [eventos, setEventos] = useState<any[]>([]);
   const [cargando, setCargando] = useState(true);
   const [categoriaActiva, setCategoriaActiva] = useState('Todos');
+  const [ciudadActiva, setCiudadActiva] = useState('Todas');
   const [eventoActivo, setEventoActivo] = useState<string | null>(null);
   const [ticketsSeleccionados, setTicketsSeleccionados] = useState<{[key: string]: number}>({});
 
@@ -31,9 +34,11 @@ export default function EventosScreen() {
     setCargando(false);
   };
 
-  const eventosFiltrados = eventos.filter(e =>
-    categoriaActiva === 'Todos' || e.categoria === categoriaActiva
-  );
+  const eventosFiltrados = eventos.filter(e => {
+    const coincideCategoria = categoriaActiva === 'Todos' || e.categoria === categoriaActiva;
+    const coincideCiudad = ciudadActiva === 'Todas' || e.ciudad === ciudadActiva;
+    return coincideCategoria && coincideCiudad;
+  });
 
   const formatFecha = (fecha: string) => {
     const d = new Date(fecha);
@@ -52,7 +57,7 @@ export default function EventosScreen() {
       id: evento.id,
       nombre: evento.nombre,
       precio: evento.precio_entrada * cantidad,
-      emoji: '🎉',
+      emoji: '🎟️',
       tipo: 'evento',
       detalle: `${cantidad} entrada${cantidad > 1 ? 's' : ''} • ${formatFecha(evento.fecha_evento)}`,
     });
@@ -67,7 +72,7 @@ export default function EventosScreen() {
         </TouchableOpacity>
         <View style={styles.headerRow}>
           <View>
-            <Text style={styles.headerTitle}>🎉 Eventos</Text>
+            <Text style={styles.headerTitle}>🎪 Eventos</Text>
             <Text style={styles.headerSub}>Conciertos y cultura en Bolivia</Text>
           </View>
           {totalItems > 0 && (
@@ -81,6 +86,21 @@ export default function EventosScreen() {
         </View>
       </LinearGradient>
 
+      {/* Selector de ciudad */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.ciudadesBar} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
+        {CIUDADES.map(ciudad => (
+          <TouchableOpacity
+            key={ciudad}
+            onPress={() => setCiudadActiva(ciudad)}
+            style={[styles.ciudadBtn, ciudadActiva === ciudad && styles.ciudadBtnActivo]}>
+            <Text style={[styles.ciudadText, ciudadActiva === ciudad && styles.ciudadTextActivo]}>
+              {ciudad === 'Todas' ? '📍 Todas' : `🏙️ ${ciudad}`}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      {/* Selector de categoría */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filtrosBar} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
         {CATEGORIAS.map(cat => (
           <TouchableOpacity key={cat} onPress={() => setCategoriaActiva(cat)} style={[styles.filtroBtn, categoriaActiva === cat && styles.filtroBtnActivo]}>
@@ -97,8 +117,8 @@ export default function EventosScreen() {
           </View>
         ) : eventosFiltrados.length === 0 ? (
           <View style={styles.emptyBox}>
-            <Text style={styles.emptyEmoji}>🎉</Text>
-            <Text style={styles.emptyText}>No hay eventos disponibles</Text>
+            <Text style={styles.emptyEmoji}>🎪</Text>
+            <Text style={styles.emptyText}>No hay eventos{ciudadActiva !== 'Todas' ? ` en ${ciudadActiva}` : ''}</Text>
           </View>
         ) : (
           eventosFiltrados.map(evento => (
@@ -131,7 +151,7 @@ export default function EventosScreen() {
 
               {eventoActivo === evento.id && (
                 <View style={styles.compraBox}>
-                  <Text style={styles.compraTitle}>🎟️ Selecciona tus entradas</Text>
+                  <Text style={styles.compraTitle}>🎫 Selecciona tus entradas</Text>
                   <View style={styles.ticketsRow}>
                     <TouchableOpacity onPress={() => setTickets(evento.id, getTickets(evento.id) - 1)} style={styles.ticketBtn}>
                       <Text style={styles.ticketBtnText}>−</Text>
@@ -182,8 +202,13 @@ const styles = StyleSheet.create({
   carritoEmoji: { fontSize: 28 },
   carritoBadge: { position: 'absolute', top: 0, right: 0, backgroundColor: '#FFF', borderRadius: 10, width: 20, height: 20, alignItems: 'center', justifyContent: 'center' },
   carritoBadgeText: { fontSize: 11, fontWeight: '800', color: '#7C3AED' },
-  filtrosBar: { paddingVertical: 12, maxHeight: 56 },
-  filtroBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#E5E7EB' },
+  ciudadesBar: { paddingVertical: 10, maxHeight: 52, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
+  ciudadBtn: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#E5E7EB' },
+  ciudadBtnActivo: { backgroundColor: '#7C3AED', borderColor: '#7C3AED' },
+  ciudadText: { fontSize: 12, color: '#6B7280', fontWeight: '600' },
+  ciudadTextActivo: { color: '#FFF' },
+  filtrosBar: { paddingVertical: 10, maxHeight: 52, backgroundColor: '#FAFAFA', borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
+  filtroBtn: { paddingHorizontal: 16, paddingVertical: 6, borderRadius: 20, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#E5E7EB' },
   filtroBtnActivo: { backgroundColor: '#7C3AED', borderColor: '#7C3AED' },
   filtroText: { fontSize: 13, color: '#6B7280', fontWeight: '600' },
   filtroTextActivo: { color: '#FFF' },
@@ -192,7 +217,7 @@ const styles = StyleSheet.create({
   loadingText: { marginTop: 12, color: '#6B7280', fontSize: 14 },
   emptyBox: { alignItems: 'center', paddingVertical: 40 },
   emptyEmoji: { fontSize: 48, marginBottom: 12 },
-  emptyText: { color: '#6B7280', fontSize: 15 },
+  emptyText: { color: '#6B7280', fontSize: 15, textAlign: 'center' },
   card: { backgroundColor: '#FFF', borderRadius: 20, marginBottom: 16, elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.1, shadowRadius: 8, overflow: 'hidden' },
   cardImagen: { height: 180, width: '100%' },
   categoriaBadge: { position: 'absolute', top: 12, right: 12, backgroundColor: '#7C3AED', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
@@ -225,3 +250,4 @@ const styles = StyleSheet.create({
   footerGradient: { padding: 18, alignItems: 'center' },
   footerText: { color: '#FFF', fontSize: 17, fontWeight: '800' },
 });
+

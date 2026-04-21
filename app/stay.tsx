@@ -8,6 +8,8 @@ import { supabase } from '../lib/supabase';
 const MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 const hoy = new Date();
 
+const CIUDADES = ['Todos', 'Tarija', 'La Paz', 'Santa Cruz', 'Cochabamba', 'Oruro', 'Potosí', 'Sucre', 'Trinidad', 'Cobija'];
+
 export default function StayScreen() {
   const router = useRouter();
   const { agregarItem, totalItems } = useCarrito();
@@ -43,7 +45,7 @@ export default function StayScreen() {
   const noches = fechaEntrada && fechaSalida ? Math.abs(fechaSalida - fechaEntrada) : 1;
 
   const getEmoji = (tipo: string) => {
-    const emojis: any = { Casa: '🏛️', Departamento: '🌄', Cabaña: '🍷', Suite: '🏙️' };
+    const emojis: any = { Casa: '🏠', Departamento: '🏢', Cabaña: '🏕️', Suite: '🏨' };
     return emojis[tipo] || '🏠';
   };
 
@@ -72,7 +74,7 @@ export default function StayScreen() {
         </TouchableOpacity>
         <View style={styles.headerRow}>
           <View>
-            <Text style={styles.headerTitle}>🏡 Caserita Stay</Text>
+            <Text style={styles.headerTitle}>🏨 Caserita Stay</Text>
             <Text style={styles.headerSub}>Tu alojamiento en Bolivia</Text>
           </View>
           {totalItems > 0 && (
@@ -87,9 +89,11 @@ export default function StayScreen() {
       </LinearGradient>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filtrosBar} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
-        {['Todos', 'Tarija', 'La Paz', 'Santa Cruz'].map(c => (
+        {CIUDADES.map(c => (
           <TouchableOpacity key={c} onPress={() => setFiltroCiudad(c)} style={[styles.filtroBtn, filtroCiudad === c && styles.filtroBtnActivo]}>
-            <Text style={[styles.filtroText, filtroCiudad === c && styles.filtroTextActivo]}>📍 {c}</Text>
+            <Text style={[styles.filtroText, filtroCiudad === c && styles.filtroTextActivo]}>
+              {c === 'Todos' ? '📍 Todos' : `🏙️ ${c}`}
+            </Text>
           </TouchableOpacity>
         ))}
         <TouchableOpacity onPress={() => setSoloOfertas(!soloOfertas)} style={[styles.filtroBtn, soloOfertas && styles.filtroBtnOferta]}>
@@ -105,7 +109,7 @@ export default function StayScreen() {
           </View>
         ) : (
           <>
-            <Text style={styles.resultados}>{alojamientosFiltrados.length} alojamientos disponibles</Text>
+            <Text style={styles.resultados}>{alojamientosFiltrados.length} alojamientos disponibles{filtroCiudad !== 'Todos' ? ` en ${filtroCiudad}` : ''}</Text>
             {alojamientosFiltrados.map(aloj => (
               <TouchableOpacity
                 key={aloj.id}
@@ -130,9 +134,9 @@ export default function StayScreen() {
 
                 {alojamientoActivo === aloj.id && (
                   <View style={styles.detalleBox}>
-                    <Text style={styles.habTitle}>📋 Detalles</Text>
+                    <Text style={styles.habTitle}>🏠 Detalles</Text>
                     <View style={styles.detalleRow}>
-                      <Text style={styles.detalleItem}>🏠 Tipo: {aloj.tipo}</Text>
+                      <Text style={styles.detalleItem}>🏷️ Tipo: {aloj.tipo}</Text>
                       <Text style={styles.detalleItem}>👥 Hasta {aloj.huespedes_max} huéspedes</Text>
                     </View>
                     <Text style={styles.detalleItem}>📍 {aloj.direccion}</Text>
@@ -237,8 +241,8 @@ const styles = StyleSheet.create({
   carritoEmoji: { fontSize: 28 },
   carritoBadge: { position: 'absolute', top: 0, right: 0, backgroundColor: '#FFF', borderRadius: 10, width: 20, height: 20, alignItems: 'center', justifyContent: 'center' },
   carritoBadgeText: { fontSize: 11, fontWeight: '800', color: '#6B21A8' },
-  filtrosBar: { paddingVertical: 12, maxHeight: 56 },
-  filtroBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#E5E7EB' },
+  filtrosBar: { paddingVertical: 10, maxHeight: 52, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
+  filtroBtn: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#E5E7EB' },
   filtroBtnActivo: { backgroundColor: '#6B21A8', borderColor: '#6B21A8' },
   filtroBtnOferta: { backgroundColor: '#F97316', borderColor: '#F97316' },
   filtroText: { fontSize: 12, color: '#6B7280', fontWeight: '600' },
@@ -294,3 +298,4 @@ const styles = StyleSheet.create({
   footerGradient: { padding: 18, alignItems: 'center' },
   footerText: { color: '#FFF', fontSize: 17, fontWeight: '800' },
 });
+
