@@ -1,20 +1,43 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Animated, Dimensions, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { supabase } from '../lib/supabase';
 
 const { width } = Dimensions.get('window');
+
+type UserInfo = { name: string; avatarUrl: string | null };
 
 export default function HomeScreen() {
   const router = useRouter();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(40)).current;
+  const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
+
+  const extractUserInfo = (session: any): UserInfo | null => {
+    if (!session?.user) return null;
+    const meta = session.user.user_metadata ?? {};
+    const name: string =
+      meta.full_name ?? meta.name ?? session.user.email?.split('@')[0] ?? 'Usuario';
+    const avatarUrl: string | null = meta.avatar_url ?? meta.picture ?? null;
+    return { name, avatarUrl };
+  };
 
   useEffect(() => {
     Animated.parallel([
       Animated.timing(fadeAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
       Animated.timing(slideAnim, { toValue: 0, duration: 800, useNativeDriver: true }),
     ]).start();
+
+    supabase.auth.getSession().then(({ data }) => {
+      setUserInfo(extractUserInfo(data.session));
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUserInfo(extractUserInfo(session));
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   return (
@@ -38,9 +61,32 @@ export default function HomeScreen() {
             <View style={styles.stat}><Text style={styles.statNum}>3</Text><Text style={styles.statLabel}>Ciudades</Text></View>
           </Animated.View>
 
-          <TouchableOpacity onPress={() => router.push('/login')} style={styles.loginBtn}>
-            <Text style={styles.loginBtnText}>👤 Iniciar Sesión / Registrarse</Text>
-          </TouchableOpacity>
+          {userInfo ? (
+            <TouchableOpacity onPress={() => router.push('/perfil')} style={styles.profileBtn}>
+              {userInfo.avatarUrl ? (
+                <Image source={{ uri: userInfo.avatarUrl }} style={styles.profileAvatar} />
+              ) : (
+                <View style={styles.profileInitialCircle}>
+                  <Text style={styles.profileInitial}>
+                    {userInfo.name.charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+              )}
+              <View style={styles.profileTextBlock}>
+                <Text style={styles.profileGreeting}>Hola,</Text>
+                <Text style={styles.profileName} numberOfLines={1}>
+                  {userInfo.name.split(' ')[0]}
+                </Text>
+              </View>
+              <View style={styles.profileArrow}>
+                <Text style={styles.profileArrowText}>›</Text>
+              </View>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity onPress={() => router.push('/login')} style={styles.loginBtn}>
+              <Text style={styles.loginBtnText}>👤 Iniciar Sesión / Registrarse</Text>
+            </TouchableOpacity>
+          )}
         </Animated.View>
       </LinearGradient>
 
@@ -125,4 +171,13 @@ const styles = StyleSheet.create({
   hostDesc: { fontSize: 14, color: '#DDD6FE', marginTop: 8 },
   loginBtn: { marginHorizontal: 20, marginTop: 16, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 16, padding: 14, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)' },
   loginBtnText: { color: '#FFF', fontSize: 15, fontWeight: '700' },
+  profileBtn: { marginHorizontal: 20, marginTop: 16, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 20, paddingVertical: 10, paddingHorizontal: 14, borderWidth: 1.5, borderColor: '#F97316', gap: 12 },
+  profileAvatar: { width: 44, height: 44, borderRadius: 22, borderWidth: 2, borderColor: '#F97316' },
+  profileInitialCircle: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#F97316', alignItems: 'center', justifyContent: 'center' },
+  profileInitial: { color: '#FFF', fontSize: 20, fontWeight: '800' },
+  profileTextBlock: { flex: 1 },
+  profileGreeting: { color: '#FED7AA', fontSize: 11, fontWeight: '500' },
+  profileName: { color: '#FFF', fontSize: 16, fontWeight: '800' },
+  profileArrow: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#F97316', alignItems: 'center', justifyContent: 'center' },
+  profileArrowText: { color: '#FFF', fontSize: 20, fontWeight: '700', lineHeight: 24 },
 });
