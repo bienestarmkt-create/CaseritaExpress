@@ -1,9 +1,10 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useCarrito } from '../context/CarritoContext';
 import { supabase } from '../lib/supabase';
+import { sendPushTo } from '../lib/usePush';
 
 type TipoItem = 'delivery' | 'stay' | 'evento';
 
@@ -17,6 +18,7 @@ export default function CarritoScreen() {
   const router = useRouter();
   const { items, aumentar, disminuir, eliminar, limpiarCarrito, totalItems } = useCarrito();
   const [pedidoEnviado, setPedidoEnviado] = useState(false);
+  const [totalConfirmado, setTotalConfirmado] = useState(0);
   const [mostrarConfirm, setMostrarConfirm] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -31,25 +33,52 @@ export default function CarritoScreen() {
     setGuardando(true);
     setErrorMsg('');
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+      if (authError || !user) {
+        setErrorMsg('Debes iniciar sesión para confirmar un pedido.');
+        setGuardando(false);
+        router.push('/login');
+        return;
+      }
+
       const itemsDelivery = items.filter(i => i.tipo === 'delivery');
 
       if (itemsDelivery.length > 0) {
+        const subtotalDelivery = itemsDelivery.reduce((acc, i) => acc + i.precio * i.cantidad, 0);
+        const comisionDelivery = Math.round(subtotalDelivery * 0.15);
+        const totalDelivery = subtotalDelivery + envio;
+        const negocioId = itemsDelivery[0].negocio_id ?? null;
+
+        const payload = {
+          cliente_id: user.id,
+          negocio_id: negocioId,
+          subtotal: subtotalDelivery,
+          comision: comisionDelivery,
+          total: totalDelivery,
+          estado: 'pendiente',
+          direccion_entrega: 'Por confirmar',
+        };
+
+        console.log('[carrito] inserting pedido payload:', JSON.stringify(payload));
+
         const { data: pedido, error: errorPedido } = await supabase
           .from('pedidos')
-          .insert({
-            cliente_id: user?.id || null,
-            negocio_id: itemsDelivery[0].negocio_id || null,
-            subtotal: subtotal,
-            comision: comision,
-            total: total,
-            estado: 'pendiente',
-            direccion_entrega: 'Por confirmar',
-          })
+          .insert(payload)
           .select()
           .single();
 
-        if (errorPedido) throw errorPedido;
+        if (errorPedido) {
+          console.error('[carrito] error inserting pedido:', JSON.stringify({
+            code: errorPedido.code,
+            message: errorPedido.message,
+            details: errorPedido.details,
+            hint: errorPedido.hint,
+          }));
+          throw errorPedido;
+        }
+
+        console.log('[carrito] pedido created:', pedido.id);
 
         const detalles = itemsDelivery.map(item => ({
           pedido_id: pedido.id,
@@ -59,19 +88,70 @@ export default function CarritoScreen() {
           subtotal: item.precio * item.cantidad,
         }));
 
+        console.log('[carrito] inserting detalle_pedidos:', JSON.stringify(detalles));
+
         const { error: errorDetalle } = await supabase
           .from('detalle_pedidos')
           .insert(detalles);
 
-        if (errorDetalle) throw errorDetalle;
+        if (errorDetalle) {
+          console.error('[carrito] error inserting detalle_pedidos:', JSON.stringify({
+            code: errorDetalle.code,
+            message: errorDetalle.message,
+            details: errorDetalle.details,
+            hint: errorDetalle.hint,
+            pedido_id: pedido?.id,
+            cliente_id: user.id,
+          }));
+          throw errorDetalle;
+        }
+
+        // Notificar al negocio inmediatamente (respaldo: el webhook de Supabase también lo hace)
+        if (negocioId) {
+          const { data: negocio } = await supabase
+            .from('negocios')
+            .select('usuario_id, nombre')
+            .eq('id', negocioId)
+            .single();
+
+          if (negocio?.usuario_id) {
+            await sendPushTo(
+              negocio.usuario_id,
+              '🆕 Nuevo pedido recibido',
+              `Bs. ${pedido.total} · ${pedido.direccion_entrega || 'Sin dirección'}`,
+              '/anfitrion',
+              `pedido-nuevo-${pedido.id}`
+            );
+          }
+        }
       }
 
       setMostrarConfirm(false);
+      setTotalConfirmado(total);
+      limpiarCarrito();
       setPedidoEnviado(true);
 
     } catch (error: any) {
-      setErrorMsg('Error al confirmar el pedido. Intenta de nuevo.');
-      console.error(error);
+      const errInfo = {
+        code: error?.code ?? '',
+        message: error?.message ?? '',
+        details: error?.details ?? '',
+        hint: error?.hint ?? '',
+        raw: String(error),
+      };
+      console.error('[carrito] confirmarPedido caught:', JSON.stringify(errInfo));
+
+      const supaMsg = errInfo.message || errInfo.details || errInfo.code || errInfo.raw;
+      const displayMsg = supaMsg
+        ? `[${errInfo.code || 'ERR'}] ${supaMsg}`
+        : 'Error al confirmar el pedido. Intenta de nuevo.';
+      setErrorMsg(displayMsg);
+
+      Alert.alert(
+        'Error al confirmar pedido',
+        `Código: ${errInfo.code}\nMensaje: ${errInfo.message}\nDetalles: ${errInfo.details}\nHint: ${errInfo.hint}`,
+        [{ text: 'OK' }]
+      );
     }
     setGuardando(false);
   };
@@ -87,7 +167,7 @@ export default function CarritoScreen() {
             {items.some(i => i.tipo === 'delivery') && <Text style={styles.successItem}>🍔 Delivery: 30-45 min</Text>}
             {items.some(i => i.tipo === 'stay') && <Text style={styles.successItem}>🏡 Stay: confirmación por email</Text>}
             {items.some(i => i.tipo === 'evento') && <Text style={styles.successItem}>🎉 Entradas enviadas por WhatsApp</Text>}
-            <Text style={styles.successItem}>💰 Total pagado: Bs. {total}</Text>
+            <Text style={styles.successItem}>💰 Total pagado: Bs. {totalConfirmado}</Text>
           </View>
           <TouchableOpacity style={styles.successBtn} onPress={() => { limpiarCarrito(); setPedidoEnviado(false); router.push('/'); }}>
             <Text style={styles.successBtnText}>Volver al inicio</Text>
