@@ -1,29 +1,24 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { Animated, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { supabase } from '../lib/supabase';
 
-// ─── DATOS ───────────────────────────────────────────────
-const PEDIDO = {
-  numero: '#CE-2024-0847',
-  fecha: '12 Mar 2026 • 14:32',
-  restaurante: 'El Rancho Chapaco',
-  restauranteEmoji: '🥩',
-  items: [
-    { nombre: 'Silpancho completo', cantidad: 1, precio: 35 },
-    { nombre: 'Salteñas (x3)', cantidad: 1, precio: 15 },
-    { nombre: 'Refresco', cantidad: 1, precio: 10 },
-  ],
-  subtotal: 50,
-  envio: 10,
-  total: 60,
-  direccion: 'Av. Las Américas #342, Tarija',
-  referencia: 'Casa de rejas negras, frente a la farmacia',
-};
+// ─── ESTADO → ÍNDICE ─────────────────────────────────────
+function estadoAIndice(estado: string): number {
+  const map: Record<string, number> = {
+    pendiente: 1,
+    confirmado: 2,
+    en_camino: 3,
+    entregado: 5,
+    cancelado: 1,
+  };
+  return map[estado] ?? 1;
+}
 
-const REPARTIDOR = {
-  nombre: 'Carlos Mamani',
-  emoji: '👨',
+const REPARTIDOR_DEFAULT = {
+  nombre: 'Repartidor CaseritaExpress',
+  emoji: '🏍️',
   rating: 4.9,
   entregas: 342,
   telefono: '+591 71234567',
@@ -58,6 +53,7 @@ const RESPUESTAS_RAPIDAS = [
 // ─── COMPONENTE PRINCIPAL ─────────────────────────────────
 export default function SeguimientoScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ pedidoId?: string }>();
   const [tabActiva, setTabActiva] = useState<'seguimiento' | 'repartidor' | 'chat' | 'pedido'>('seguimiento');
   const [tiempoRestante, setTiempoRestante] = useState(8);
   const [estadoActual, setEstadoActual] = useState(3);
@@ -67,7 +63,91 @@ export default function SeguimientoScreen() {
   const [estrellas, setEstrellas] = useState(0);
   const [calificado, setCalificado] = useState(false);
   const [notifChat, setNotifChat] = useState(0);
+  const [pedidoReal, setPedidoReal] = useState<any>(null);
+  const [repartidorReal, setRepartidorReal] = useState<any>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  // Cargar pedido real desde Supabase
+  useEffect(() => {
+    let sub: any;
+    async function cargar() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      let pedidoId = params.pedidoId;
+      if (!pedidoId) {
+        const { data } = await supabase
+          .from('pedidos')
+          .select('*')
+          .eq('cliente_id', user.id)
+          .not('estado', 'eq', 'cancelado')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
+        pedidoId = data?.id;
+        if (data) actualizarDesdeDB(data);
+      } else {
+        const { data } = await supabase.from('pedidos').select('*').eq('id', pedidoId).single();
+        if (data) actualizarDesdeDB(data);
+      }
+
+      if (pedidoId) {
+        sub = supabase
+          .channel(`pedido-${pedidoId}`)
+          .on('postgres_changes', {
+            event: 'UPDATE', schema: 'public', table: 'pedidos',
+            filter: `id=eq.${pedidoId}`,
+          }, (payload) => actualizarDesdeDB(payload.new))
+          .subscribe();
+      }
+    }
+
+    function actualizarDesdeDB(data: any) {
+      setPedidoReal(data);
+      const idx = estadoAIndice(data.estado);
+      setEstadoActual(idx);
+      if (data.estado === 'entregado') {
+        setPedidoEntregado(true);
+        setTiempoRestante(0);
+      }
+      if (data.repartidor_nombre) {
+        setRepartidorReal({ ...REPARTIDOR_DEFAULT, nombre: data.repartidor_nombre });
+      }
+    }
+
+    cargar();
+    return () => { if (sub) supabase.removeChannel(sub); };
+  }, [params.pedidoId]);
+
+  const REPARTIDOR = repartidorReal ?? REPARTIDOR_DEFAULT;
+
+  const PEDIDO = pedidoReal ? {
+    numero: `#CE-${pedidoReal.id.slice(-8).toUpperCase()}`,
+    fecha: new Date(pedidoReal.created_at).toLocaleString('es-BO'),
+    restaurante: pedidoReal.negocios?.nombre ?? 'Restaurante',
+    restauranteEmoji: '🍔',
+    items: Array.isArray(pedidoReal.items) ? pedidoReal.items : [],
+    subtotal: pedidoReal.subtotal ?? pedidoReal.total ?? 0,
+    envio: 10,
+    total: pedidoReal.total ?? 0,
+    direccion: pedidoReal.direccion_entrega ?? 'Dirección de entrega',
+    referencia: '',
+  } : {
+    numero: '#CE-2024-0847',
+    fecha: '12 Mar 2026 • 14:32',
+    restaurante: 'El Rancho Chapaco',
+    restauranteEmoji: '🥩',
+    items: [
+      { nombre: 'Silpancho completo', cantidad: 1, precio: 35 },
+      { nombre: 'Salteñas (x3)', cantidad: 1, precio: 15 },
+      { nombre: 'Refresco', cantidad: 1, precio: 10 },
+    ],
+    subtotal: 50,
+    envio: 10,
+    total: 60,
+    direccion: 'Av. Las Américas #342, Tarija',
+    referencia: 'Casa de rejas negras, frente a la farmacia',
+  };
 
   // Animación pulso repartidor en mapa
   useEffect(() => {
@@ -77,25 +157,6 @@ export default function SeguimientoScreen() {
         Animated.timing(pulseAnim, { toValue: 1, duration: 700, useNativeDriver: true }),
       ])
     ).start();
-  }, []);
-
-  // Simular progreso del pedido
-  useEffect(() => {
-    if (pedidoEntregado) return;
-    const timer = setInterval(() => {
-      setTiempoRestante(prev => {
-        if (prev <= 1) {
-          setEstadoActual(5);
-          setPedidoEntregado(true);
-          setModalCalificar(true);
-          clearInterval(timer);
-          return 0;
-        }
-        if (prev === 4) setEstadoActual(4);
-        return prev - 1;
-      });
-    }, 4000);
-    return () => clearInterval(timer);
   }, []);
 
   const enviarMensaje = (texto: string) => {
