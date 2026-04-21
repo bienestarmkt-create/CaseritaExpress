@@ -131,6 +131,22 @@ export default function PerfilScreen() {
           </View>
         )}
 
+        {/* MODO REPARTIDOR */}
+        {(usuario?.rol === 'repartidor' || usuario?.rol === 'admin') && (
+          <TouchableOpacity
+            style={styles.repartidorBtn}
+            onPress={() => router.push('/repartidor')}>
+            <LinearGradient colors={['#F97316', '#EA580C']} style={styles.repartidorGrad}>
+              <Text style={styles.repartidorBtnEmoji}>🏍️</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.repartidorBtnTitle}>Panel Repartidor</Text>
+                <Text style={styles.repartidorBtnSub}>Ver pedidos asignados y entregas</Text>
+              </View>
+              <Text style={styles.repartidorBtnArrow}>›</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        )}
+
         {/* MENÚ OPCIONES */}
         <View style={styles.menuBox}>
           {[
@@ -218,6 +234,12 @@ const styles = StyleSheet.create({
   itemTotal: { fontSize: 15, fontWeight: '800', color: '#1E0A3C', marginBottom: 4 },
   estadoBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
   estadoText: { fontSize: 11, fontWeight: '700' },
+  repartidorBtn:      { marginHorizontal: 16, marginTop: 12, borderRadius: 16, overflow: 'hidden', elevation: 3 },
+  repartidorGrad:     { flexDirection: 'row', alignItems: 'center', padding: 16, gap: 12 },
+  repartidorBtnEmoji: { fontSize: 28 },
+  repartidorBtnTitle: { color: '#FFF', fontWeight: '800', fontSize: 15 },
+  repartidorBtnSub:   { color: 'rgba(255,255,255,0.8)', fontSize: 12, marginTop: 2 },
+  repartidorBtnArrow: { color: '#FFF', fontSize: 24, fontWeight: '300' },
   menuBox: { marginHorizontal: 16, marginTop: 12, backgroundColor: '#FFF', borderRadius: 16, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 6, overflow: 'hidden' },
   menuItem: { flexDirection: 'row', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#F9FAFB' },
   menuEmoji: { fontSize: 20, marginRight: 14 },
