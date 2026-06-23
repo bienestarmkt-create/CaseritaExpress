@@ -1,7 +1,10 @@
+import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Image, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { supabase } from '../lib/supabase';
 
 type Pedido = {
@@ -17,7 +20,13 @@ type Pedido = {
   repartidor_id?: string;
   repartidor_nombre?: string;
   created_at: string;
-  negocios?: { nombre: string };
+  negocios?: { nombre: string; direccion?: string };
+  usuarios?: { nombre: string };
+  // Pago ALTOKE
+  metodo_pago?: 'qr' | 'efectivo';
+  estado_pago?: 'pendiente' | 'pagado_qr' | 'cobrado_efectivo' | 'liquidado';
+  costo_envio?: number;
+  repartidor_cobro_efectivo?: boolean;
 };
 
 const ESTADO_LABEL: Record<string, string> = {
@@ -39,12 +48,23 @@ const ESTADO_COLOR: Record<string, string> = {
 export default function RepartidorScreen() {
   const router = useRouter();
   const [usuario, setUsuario] = useState<any>(null);
+  const [userId, setUserId] = useState<string | null>(null);
   const [pedidosDisponibles, setPedidosDisponibles] = useState<Pedido[]>([]);
   const [misEntregas, setMisEntregas] = useState<Pedido[]>([]);
-  const [tab, setTab] = useState<'disponibles' | 'mis_entregas'>('disponibles');
+  const [pedidosEntregados, setPedidosEntregados] = useState<Pedido[]>([]);
+  const [tab, setTab] = useState<'disponibles' | 'mis_entregas' | 'perfil'>('disponibles');
   const [cargando, setCargando] = useState(true);
   const [actualizando, setActualizando] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [trackingPedidoId, setTrackingPedidoId] = useState<string | null>(null);
+  const locationWatcherRef = useRef<Location.LocationSubscription | null>(null);
+  // Perfil
+  const [perfil, setPerfil] = useState({
+    nombre: '', telefono: '', ci: '', edad: '',
+    vehiculo_tipo: 'moto', vehiculo_placa: '', licencia: '', foto_url: '',
+  });
+  const [guardandoPerfil, setGuardandoPerfil] = useState(false);
+  const [email, setEmail] = useState('');
 
   useEffect(() => {
     init();
@@ -52,15 +72,32 @@ export default function RepartidorScreen() {
       .channel('repartidor-pedidos')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'pedidos' }, () => cargar())
       .subscribe();
-    return () => { supabase.removeChannel(sub); };
+    return () => {
+      supabase.removeChannel(sub);
+      locationWatcherRef.current?.remove();
+    };
   }, []);
 
   async function init() {
     setCargando(true);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { router.push('/login'); return; }
-    const { data: perfil } = await supabase.from('usuarios').select('*').eq('id', user.id).single();
-    setUsuario(perfil);
+    setUserId(user.id);
+    setEmail(user.email ?? '');
+    const { data: datos } = await supabase.from('usuarios').select('*').eq('id', user.id).single();
+    setUsuario(datos);
+    if (datos) {
+      setPerfil({
+        nombre:         datos.nombre       ?? '',
+        telefono:       datos.telefono     ?? '',
+        ci:             datos.ci           ?? '',
+        edad:           datos.edad != null ? String(datos.edad) : '',
+        vehiculo_tipo:  datos.vehiculo_tipo ?? 'moto',
+        vehiculo_placa: datos.vehiculo_placa ?? '',
+        licencia:       datos.licencia     ?? '',
+        foto_url:       datos.foto_url     ?? '',
+      });
+    }
     await cargar(user.id);
     setCargando(false);
   }
@@ -70,37 +107,104 @@ export default function RepartidorScreen() {
     const userId = uid ?? user?.id;
     if (!userId) return;
 
-    const { data: disponibles } = await supabase
+    const { data: disponibles, error: errDisp } = await supabase
       .from('pedidos')
-      .select('*, negocios(nombre)')
+      .select('*, negocios(nombre, direccion), usuarios!cliente_id(nombre)')
       .eq('estado', 'confirmado')
       .is('repartidor_id', null)
-      .order('created_at', { ascending: true });
-
-    const { data: mias } = await supabase
-      .from('pedidos')
-      .select('*, negocios(nombre)')
-      .eq('repartidor_id', userId)
-      .in('estado', ['en_camino', 'entregado'])
       .order('created_at', { ascending: false });
+
+    if (errDisp) console.error('[repartidor] disponibles error:', errDisp.message, errDisp.code);
+
+    const { data: mias, error: errMias } = await supabase
+      .from('pedidos')
+      .select('*, negocios(nombre, direccion), usuarios!cliente_id(nombre)')
+      .eq('repartidor_id', userId)
+      .eq('estado', 'en_camino')
+      .order('created_at', { ascending: false });
+
+    if (errMias) console.error('[repartidor] mis entregas error:', errMias.message, errMias.code);
+
+    const { data: entregados } = await supabase
+      .from('pedidos')
+      .select('id')
+      .eq('repartidor_id', userId)
+      .eq('estado', 'entregado');
 
     setPedidosDisponibles(disponibles ?? []);
     setMisEntregas(mias ?? []);
+    setPedidosEntregados(entregados ?? []);
   }
 
-  async function aceptarPedido(pedido: Pedido) {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    setActualizando(pedido.id);
-    const nombre = usuario?.nombre ?? user.email?.split('@')[0] ?? 'Repartidor';
-    const { error } = await supabase
-      .from('pedidos')
-      .update({ estado: 'en_camino', repartidor_id: user.id, repartidor_nombre: nombre })
-      .eq('id', pedido.id);
-    if (error) Alert.alert('Error', 'No se pudo aceptar el pedido');
-    else { setTab('mis_entregas'); await cargar(); }
-    setActualizando(null);
+  async function startTracking(pedidoId: string) {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permiso de ubicación', 'Activa el GPS para compartir tu posición con el cliente.');
+      return;
+    }
+    setTrackingPedidoId(pedidoId);
+    locationWatcherRef.current = await Location.watchPositionAsync(
+      { accuracy: Location.Accuracy.High, timeInterval: 5000, distanceInterval: 10 },
+      async (loc) => {
+        const { error } = await supabase.from('ubicaciones_repartidores').upsert(
+          {
+            pedido_id: pedidoId,
+            repartidor_id: userId,
+            lat: loc.coords.latitude,
+            lng: loc.coords.longitude,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'pedido_id' }
+        );
+        if (error) console.error('[GPS] upsert error:', error.message);
+      }
+    );
   }
+
+  async function stopTracking() {
+    locationWatcherRef.current?.remove();
+    locationWatcherRef.current = null;
+    if (trackingPedidoId) {
+      await supabase.from('ubicaciones_repartidores').delete().eq('pedido_id', trackingPedidoId);
+    }
+    setTrackingPedidoId(null);
+  }
+
+  const tomarPedido = async (pedidoId: string) => {
+    try {
+      console.log('Intentando tomar pedido:', pedidoId);
+      console.log('Usuario actual:', userId);
+      setActualizando(pedidoId);
+
+      const { data, error } = await supabase
+        .from('pedidos')
+        .update({
+          repartidor_id: userId,
+          repartidor_nombre: usuario?.nombre ?? null,
+          estado: 'en_camino',
+        })
+        .eq('id', pedidoId)
+        .select();
+
+      console.log('Resultado:', data, 'Error:', error);
+
+      if (error) {
+        Alert.alert('Error', error.message);
+        return;
+      }
+
+      Alert.alert('✅ Pedido tomado', 'Ve a recoger el pedido en el restaurante.');
+      await startTracking(pedidoId);
+      cargar(userId ?? undefined);
+      setTab('mis_entregas');
+
+    } catch (e: any) {
+      console.log('Excepcion:', e.message);
+      Alert.alert('Error', e.message);
+    } finally {
+      setActualizando(null);
+    }
+  };
 
   async function marcarEntregado(pedidoId: string) {
     setActualizando(pedidoId);
@@ -109,8 +213,62 @@ export default function RepartidorScreen() {
       .update({ estado: 'entregado' })
       .eq('id', pedidoId);
     if (error) Alert.alert('Error', 'No se pudo actualizar el estado');
-    else await cargar();
+    else {
+      await stopTracking();
+      await cargar(userId ?? undefined);
+    }
     setActualizando(null);
+  }
+
+  async function cobrarEfectivo(pedidoId: string) {
+    setActualizando(pedidoId);
+    const { error } = await supabase
+      .from('pedidos')
+      .update({ repartidor_cobro_efectivo: true, estado_pago: 'cobrado_efectivo', estado: 'entregado' })
+      .eq('id', pedidoId);
+    if (error) Alert.alert('Error', 'No se pudo registrar el cobro');
+    else {
+      Alert.alert('✅ Cobro registrado', 'El pago en efectivo ha sido confirmado.');
+      await stopTracking();
+      await cargar(userId ?? undefined);
+    }
+    setActualizando(null);
+  }
+
+  async function seleccionarFoto() {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') { Alert.alert('Permiso requerido', 'Necesitamos acceso a tu galería.'); return; }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
+    if (result.canceled || !result.assets.length || !userId) return;
+    setGuardandoPerfil(true);
+    try {
+      const uri = result.assets[0].uri;
+      const blob = await (await fetch(uri)).blob();
+      const buf  = await new Response(blob).arrayBuffer();
+      const path = `${userId}/foto_perfil.jpg`;
+      await supabase.storage.from('comprobantes').upload(path, buf, { contentType: 'image/jpeg', upsert: true });
+      const { data: urlData } = supabase.storage.from('comprobantes').getPublicUrl(path);
+      setPerfil(p => ({ ...p, foto_url: urlData.publicUrl }));
+    } catch (e: any) { Alert.alert('Error', e.message); }
+    setGuardandoPerfil(false);
+  }
+
+  async function guardarPerfil() {
+    if (!userId) return;
+    setGuardandoPerfil(true);
+    const { error } = await supabase.from('usuarios').update({
+      nombre:          perfil.nombre,
+      telefono:        perfil.telefono,
+      ci:              perfil.ci,
+      edad:            perfil.edad ? parseInt(perfil.edad) : null,
+      vehiculo_tipo:   perfil.vehiculo_tipo,
+      vehiculo_placa:  perfil.vehiculo_placa,
+      licencia:        perfil.licencia,
+      foto_url:        perfil.foto_url,
+    }).eq('id', userId);
+    setGuardandoPerfil(false);
+    if (error) Alert.alert('Error', error.message);
+    else Alert.alert('✅ Perfil guardado', 'Tus datos han sido actualizados.');
   }
 
   const onRefresh = async () => {
@@ -153,7 +311,7 @@ export default function RepartidorScreen() {
           </View>
           <View style={s.statDiv} />
           <View style={s.statBox}>
-            <Text style={s.statNum}>{misEntregas.filter(p => p.estado === 'entregado').length}</Text>
+            <Text style={s.statNum}>{pedidosEntregados.length}</Text>
             <Text style={s.statLabel}>Entregados</Text>
           </View>
         </View>
@@ -175,53 +333,144 @@ export default function RepartidorScreen() {
             🏍️ Mis entregas ({misEntregas.length})
           </Text>
         </TouchableOpacity>
+        <TouchableOpacity
+          style={[s.tabBtn, tab === 'perfil' && s.tabActivo]}
+          onPress={() => setTab('perfil')}>
+          <Text style={[s.tabLabel, tab === 'perfil' && s.tabLabelActivo]}>
+            👤 Perfil
+          </Text>
+        </TouchableOpacity>
       </View>
 
-      {/* Lista */}
-      <ScrollView
-        style={s.body}
-        showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#F97316']} />}>
-        {lista.length === 0 ? (
-          <View style={s.emptyBox}>
-            <Text style={s.emptyEmoji}>{tab === 'disponibles' ? '📭' : '🏍️'}</Text>
-            <Text style={s.emptyTitle}>
-              {tab === 'disponibles' ? 'No hay pedidos disponibles' : 'Sin entregas aún'}
-            </Text>
-            <Text style={s.emptySubtitle}>
-              {tab === 'disponibles'
-                ? 'Cuando haya pedidos confirmados aparecerán aquí'
-                : 'Acepta un pedido disponible para comenzar'}
-            </Text>
+      {/* Lista pedidos */}
+      {tab !== 'perfil' && (
+        <ScrollView
+          style={s.body}
+          showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#F97316']} />}>
+          {lista.length === 0 ? (
+            <View style={s.emptyBox}>
+              <Text style={s.emptyEmoji}>{tab === 'disponibles' ? '📭' : '🏍️'}</Text>
+              <Text style={s.emptyTitle}>
+                {tab === 'disponibles' ? 'No hay pedidos disponibles' : 'Sin entregas aún'}
+              </Text>
+              <Text style={s.emptySubtitle}>
+                {tab === 'disponibles'
+                  ? 'Cuando haya pedidos confirmados aparecerán aquí'
+                  : 'Acepta un pedido disponible para comenzar'}
+              </Text>
+            </View>
+          ) : (
+            lista.map(pedido => (
+              <PedidoCard
+                key={pedido.id}
+                pedido={pedido}
+                tab={tab}
+                actualizando={actualizando === pedido.id}
+                isTracking={trackingPedidoId === pedido.id}
+                onAceptar={() => tomarPedido(pedido.id)}
+                onEntregado={() => marcarEntregado(pedido.id)}
+                onCobrarEfectivo={() => cobrarEfectivo(pedido.id)}
+              />
+            ))
+          )}
+          <View style={{ height: 40 }} />
+        </ScrollView>
+      )}
+
+      {/* Tab Perfil */}
+      {tab === 'perfil' && (
+        <ScrollView style={s.body} showsVerticalScrollIndicator={false}>
+
+          {/* Perfil header: foto + nombre + email */}
+          <View style={s.perfilHeaderBox}>
+            <TouchableOpacity onPress={seleccionarFoto} style={s.fotoWrapper}>
+              <View style={s.fotoCiruclo}>
+                {perfil.foto_url
+                  ? <Image source={{ uri: perfil.foto_url }} style={s.fotoImg} />
+                  : <Ionicons name="person" size={36} color="#F97316" />}
+              </View>
+              <View style={s.camaraBadge}>
+                <Ionicons name="camera" size={12} color="#FFF" />
+              </View>
+            </TouchableOpacity>
+            <Text style={s.perfilNombre}>{perfil.nombre || 'Sin nombre'}</Text>
+            <Text style={s.perfilEmailText}>{email}</Text>
           </View>
-        ) : (
-          lista.map(pedido => (
-            <PedidoCard
-              key={pedido.id}
-              pedido={pedido}
-              tab={tab}
-              actualizando={actualizando === pedido.id}
-              onAceptar={() => aceptarPedido(pedido)}
-              onEntregado={() => marcarEntregado(pedido.id)}
-            />
-          ))
-        )}
-        <View style={{ height: 40 }} />
-      </ScrollView>
+
+          <View style={s.separador} />
+
+          {/* Datos personales */}
+          <View style={s.seccionCard}>
+            <Text style={s.seccionTitle}>Datos personales</Text>
+            <Text style={s.fieldLabel}>Nombre completo</Text>
+            <TextInput style={s.input} value={perfil.nombre} onChangeText={v => setPerfil(p => ({ ...p, nombre: v }))} placeholder="Tu nombre completo" placeholderTextColor="#9CA3AF" />
+            <Text style={s.fieldLabel}>Número de celular</Text>
+            <TextInput style={s.input} value={perfil.telefono} onChangeText={v => setPerfil(p => ({ ...p, telefono: v }))} placeholder="Ej: 70123456" placeholderTextColor="#9CA3AF" keyboardType="phone-pad" />
+            <Text style={s.fieldLabel}>Carnet de Identidad (CI)</Text>
+            <TextInput style={s.input} value={perfil.ci} onChangeText={v => setPerfil(p => ({ ...p, ci: v }))} placeholder="Ej: 12345678 LP" placeholderTextColor="#9CA3AF" />
+            <Text style={s.fieldLabel}>Edad</Text>
+            <TextInput style={s.input} value={perfil.edad} onChangeText={v => setPerfil(p => ({ ...p, edad: v }))} placeholder="Ej: 28" placeholderTextColor="#9CA3AF" keyboardType="numeric" />
+          </View>
+
+          {/* Vehículo */}
+          <View style={s.seccionCard}>
+            <Text style={s.seccionTitle}>Vehículo</Text>
+            <Text style={s.fieldLabel}>Tipo de vehículo</Text>
+            <View style={s.vehiculoRow}>
+              {(['moto', 'bicicleta', 'a pie'] as const).map(tipo => (
+                <TouchableOpacity
+                  key={tipo}
+                  style={[s.vehiculoBtn, perfil.vehiculo_tipo === tipo && s.vehiculoBtnActivo]}
+                  onPress={() => setPerfil(p => ({ ...p, vehiculo_tipo: tipo }))}>
+                  <Text style={[s.vehiculoBtnText, perfil.vehiculo_tipo === tipo && s.vehiculoBtnTextActivo]}>
+                    {tipo === 'moto' ? '🏍️ Moto' : tipo === 'bicicleta' ? '🚲 Bici' : '🚶 A pie'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            {perfil.vehiculo_tipo !== 'a pie' && <>
+              <Text style={s.fieldLabel}>Placa del vehículo</Text>
+              <TextInput style={s.input} value={perfil.vehiculo_placa} onChangeText={v => setPerfil(p => ({ ...p, vehiculo_placa: v }))} placeholder="Ej: 1234-ABC" placeholderTextColor="#9CA3AF" autoCapitalize="characters" />
+            </>}
+            <Text style={s.fieldLabel}>Número de licencia de conducir</Text>
+            <TextInput style={s.input} value={perfil.licencia} onChangeText={v => setPerfil(p => ({ ...p, licencia: v }))} placeholder="Ej: 00123456" placeholderTextColor="#9CA3AF" />
+          </View>
+
+          {/* Botón guardar */}
+          <TouchableOpacity
+            style={[s.btnGuardar, guardandoPerfil && s.btnDisabled]}
+            onPress={guardarPerfil}
+            disabled={guardandoPerfil}>
+            {guardandoPerfil
+              ? <ActivityIndicator color="#FFF" />
+              : <Text style={s.btnGuardarText}>💾 Guardar perfil</Text>}
+          </TouchableOpacity>
+
+          <View style={{ height: 40 }} />
+        </ScrollView>
+      )}
     </View>
   );
 }
 
-function PedidoCard({ pedido, tab, actualizando, onAceptar, onEntregado }: {
+function PedidoCard({ pedido, tab, actualizando, isTracking, onAceptar, onEntregado, onCobrarEfectivo }: {
   pedido: Pedido;
   tab: string;
   actualizando: boolean;
+  isTracking: boolean;
   onAceptar: () => void;
   onEntregado: () => void;
+  onCobrarEfectivo: () => void;
 }) {
   const estadoColor = ESTADO_COLOR[pedido.estado] ?? '#9CA3AF';
   const estadoLabel = ESTADO_LABEL[pedido.estado] ?? pedido.estado;
   const items = Array.isArray(pedido.items) ? pedido.items : [];
+
+  const esEfectivoPendiente = pedido.metodo_pago === 'efectivo' && pedido.estado_pago === 'pendiente';
+  const esQrVerificado      = pedido.metodo_pago === 'qr' && pedido.estado_pago === 'pagado_qr';
+  const esQrPendiente       = pedido.metodo_pago === 'qr' &&
+    (pedido.estado_pago === 'pendiente' || !pedido.estado_pago);
 
   return (
     <View style={s.card}>
@@ -267,6 +516,30 @@ function PedidoCard({ pedido, tab, actualizando, onAceptar, onEntregado }: {
         </Text>
       </View>
 
+      {/* Badge de pago */}
+      {esEfectivoPendiente && (
+        <View style={s.pagoBadgeNaranja}>
+          <Text style={s.pagoBadgeNaranjaText}>💵 Cobrar Bs. {(pedido.total ?? 0).toLocaleString()}</Text>
+        </View>
+      )}
+      {esQrVerificado && (
+        <View style={s.pagoBadgeVerde}>
+          <Text style={s.pagoBadgeVerdeText}>✅ Pago QR verificado</Text>
+        </View>
+      )}
+      {esQrPendiente && tab === 'mis_entregas' && (
+        <View style={s.pagoBadgeAmarillo}>
+          <Text style={s.pagoBadgeAmarilloText}>⏳ Esperando pago del cliente</Text>
+        </View>
+      )}
+
+      {/* Badge GPS tracking */}
+      {isTracking && (
+        <View style={s.gpsBadge}>
+          <Text style={s.gpsBadgeText}>📍 Compartiendo ubicación en tiempo real</Text>
+        </View>
+      )}
+
       {/* Acciones */}
       {tab === 'disponibles' && pedido.estado === 'confirmado' && (
         <TouchableOpacity
@@ -276,25 +549,36 @@ function PedidoCard({ pedido, tab, actualizando, onAceptar, onEntregado }: {
           <LinearGradient colors={['#F97316', '#EA580C']} style={s.btnGrad}>
             {actualizando
               ? <ActivityIndicator color="#FFF" size="small" />
-              : <Text style={s.btnText}>✅ Aceptar pedido</Text>}
+              : <Text style={s.btnText}>🏍️ Tomar pedido</Text>}
           </LinearGradient>
         </TouchableOpacity>
       )}
 
       {tab === 'mis_entregas' && pedido.estado === 'en_camino' && (
-        <View style={s.botonesRow}>
-          <View style={[s.enCaminoBadge]}>
-            <Text style={s.enCaminoText}>🏍️ En camino</Text>
-          </View>
+        esEfectivoPendiente ? (
           <TouchableOpacity
-            style={[s.btnEntregado, actualizando && s.btnDisabled]}
-            onPress={onEntregado}
+            style={[s.btnCobrarEfectivo, actualizando && s.btnDisabled]}
+            onPress={onCobrarEfectivo}
             disabled={actualizando}>
             {actualizando
               ? <ActivityIndicator color="#FFF" size="small" />
-              : <Text style={s.btnEntregadoText}>📦 Marcar entregado</Text>}
+              : <Text style={s.btnCobrarEfectivoText}>✅ Confirmar cobro en efectivo</Text>}
           </TouchableOpacity>
-        </View>
+        ) : (
+          <View style={s.botonesRow}>
+            <View style={s.enCaminoBadge}>
+              <Text style={s.enCaminoText}>🏍️ En camino</Text>
+            </View>
+            <TouchableOpacity
+              style={[s.btnEntregado, actualizando && s.btnDisabled]}
+              onPress={onEntregado}
+              disabled={actualizando}>
+              {actualizando
+                ? <ActivityIndicator color="#FFF" size="small" />
+                : <Text style={s.btnEntregadoText}>📦 Marcar entregado</Text>}
+            </TouchableOpacity>
+          </View>
+        )
       )}
 
       {pedido.estado === 'entregado' && (
@@ -356,6 +640,36 @@ const s = StyleSheet.create({
   enCaminoText:     { color: '#F97316', fontWeight: '700', fontSize: 13 },
   btnEntregado:     { flex: 1, backgroundColor: '#10B981', borderRadius: 12, padding: 12, alignItems: 'center' },
   btnEntregadoText: { color: '#FFF', fontWeight: '700', fontSize: 13 },
-  completadoRow:    { backgroundColor: '#ECFDF5', borderRadius: 12, padding: 12, alignItems: 'center' },
-  completadoText:   { color: '#10B981', fontWeight: '700', fontSize: 14 },
+  completadoRow:          { backgroundColor: '#ECFDF5', borderRadius: 12, padding: 12, alignItems: 'center' },
+  completadoText:         { color: '#10B981', fontWeight: '700', fontSize: 14 },
+  pagoBadgeNaranja:       { backgroundColor: '#FFF7ED', borderWidth: 1.5, borderColor: '#F97316', borderRadius: 12, padding: 12, alignItems: 'center', marginBottom: 10 },
+  pagoBadgeNaranjaText:   { color: '#EA580C', fontWeight: '700', fontSize: 14 },
+  pagoBadgeVerde:         { backgroundColor: '#ECFDF5', borderWidth: 1.5, borderColor: '#10B981', borderRadius: 12, padding: 10, alignItems: 'center', marginBottom: 10 },
+  pagoBadgeVerdeText:     { color: '#059669', fontWeight: '700', fontSize: 13 },
+  pagoBadgeAmarillo:      { backgroundColor: '#FFFBEB', borderWidth: 1.5, borderColor: '#F59E0B', borderRadius: 12, padding: 10, alignItems: 'center', marginBottom: 10 },
+  pagoBadgeAmarilloText:  { color: '#B45309', fontWeight: '700', fontSize: 13 },
+  btnCobrarEfectivo:      { backgroundColor: '#10B981', borderRadius: 14, padding: 16, alignItems: 'center' },
+  btnCobrarEfectivoText:  { color: '#FFF', fontWeight: '800', fontSize: 15 },
+  gpsBadge:               { backgroundColor: '#EFF6FF', borderWidth: 1.5, borderColor: '#3B82F6', borderRadius: 12, padding: 10, alignItems: 'center', marginBottom: 10 },
+  gpsBadgeText:           { color: '#1D4ED8', fontWeight: '700', fontSize: 13 },
+  // Perfil tab
+  perfilHeaderBox:      { alignItems: 'center', paddingVertical: 28 },
+  fotoWrapper:          { marginBottom: 14 },
+  fotoCiruclo:          { width: 80, height: 80, borderRadius: 40, backgroundColor: '#FFF7ED', borderWidth: 3, borderColor: '#F97316', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  fotoImg:              { width: 80, height: 80, borderRadius: 40 },
+  camaraBadge:          { position: 'absolute', bottom: 0, right: -4, backgroundColor: '#F97316', borderRadius: 12, width: 24, height: 24, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#FFF' },
+  perfilNombre:         { fontSize: 20, fontWeight: '800', color: '#1E0A3C', marginBottom: 4 },
+  perfilEmailText:      { fontSize: 13, color: '#9CA3AF' },
+  separador:            { height: 1, backgroundColor: '#F3F4F6', marginHorizontal: 16, marginBottom: 8 },
+  seccionCard:          { backgroundColor: '#FFF', borderRadius: 16, padding: 16, marginBottom: 14, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 6 },
+  seccionTitle:         { fontSize: 15, fontWeight: '700', color: '#1E0A3C', marginBottom: 14 },
+  fieldLabel:           { fontSize: 12, fontWeight: '600', color: '#6B7280', marginBottom: 4, marginTop: 10 },
+  input:                { backgroundColor: '#F9FAFB', borderWidth: 1.5, borderColor: '#E5E7EB', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 11, fontSize: 14, color: '#111827' },
+  vehiculoRow:          { flexDirection: 'row', gap: 8, marginBottom: 4 },
+  vehiculoBtn:          { flex: 1, paddingVertical: 10, borderRadius: 12, borderWidth: 1.5, borderColor: '#E5E7EB', alignItems: 'center', backgroundColor: '#F9FAFB' },
+  vehiculoBtnActivo:    { borderColor: '#F97316', backgroundColor: '#FFF7ED' },
+  vehiculoBtnText:      { fontSize: 12, fontWeight: '600', color: '#9CA3AF' },
+  vehiculoBtnTextActivo:{ color: '#EA580C' },
+  btnGuardar:           { backgroundColor: '#F97316', borderRadius: 16, padding: 17, alignItems: 'center', marginBottom: 8 },
+  btnGuardarText:       { color: '#FFF', fontWeight: '800', fontSize: 16 },
 });

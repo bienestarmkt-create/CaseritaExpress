@@ -13,6 +13,7 @@ export default function HomeScreen() {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(40)).current;
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
+  const [rol, setRol] = useState<string | null>(null);
 
   const extractUserInfo = (session: any): UserInfo | null => {
     if (!session?.user) return null;
@@ -31,14 +32,31 @@ export default function HomeScreen() {
 
     supabase.auth.getSession().then(({ data }) => {
       setUserInfo(extractUserInfo(data.session));
+      if (data.session?.user) {
+        supabase.from('usuarios').select('rol').eq('id', data.session.user.id).single()
+          .then(({ data: u }) => setRol((u as { rol: string } | null)?.rol ?? 'cliente'));
+      }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUserInfo(extractUserInfo(session));
+      if (session?.user) {
+        supabase.from('usuarios').select('rol').eq('id', session.user.id).single()
+          .then(({ data: u }) => setRol((u as { rol: string } | null)?.rol ?? 'cliente'));
+      } else {
+        setRol(null);
+      }
     });
 
     return () => subscription.unsubscribe();
   }, []);
+
+  // Red de seguridad: si un repartidor llega a /index, redirigir inmediatamente
+  useEffect(() => {
+    if (rol === 'repartidor') {
+      router.replace('/repartidor' as any);
+    }
+  }, [rol]);
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>

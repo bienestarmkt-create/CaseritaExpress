@@ -46,3 +46,4 @@ app-example
 
 # Local Claude Code config
 .claude/settings.local.json
+.claude/settings.local.json

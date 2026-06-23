@@ -1,8 +1,14 @@
+import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { supabase } from '../lib/supabase';
+
+GoogleSignin.configure({
+  webClientId: '479301828324-fjefqghrn9l66ilb0ttl4f2u7ed72m7q.apps.googleusercontent.com',
+  offlineAccess: true,
+});
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -16,6 +22,25 @@ export default function LoginScreen() {
     setForm({ ...form, [campo]: valor });
     setErrorMsg('');
     setExitoMsg('');
+  };
+
+  const redirigirSegunRol = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { router.replace('/'); return; }
+      const base =
+        typeof window !== 'undefined' && window.location?.origin
+          ? window.location.origin
+          : 'https://www.caseritaexpress.com';
+      const res = await fetch(`${base}/api/get-rol`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const json = await res.json();
+      const rol = (json.rol as string) ?? 'cliente';
+      router.replace(rol === 'repartidor' ? '/repartidor' : '/');
+    } catch {
+      router.replace('/');
+    }
   };
 
   const handleSubmit = async () => {
@@ -46,7 +71,7 @@ export default function LoginScreen() {
         setErrorMsg('Correo o contraseña incorrectos. Intenta de nuevo.');
       } else {
         setExitoMsg('¡Bienvenido! Iniciando sesión...');
-        setTimeout(() => router.push('/'), 1000);
+        await redirigirSegunRol();
       }
     } else {
       const { data, error } = await supabase.auth.signUp({
@@ -70,7 +95,7 @@ export default function LoginScreen() {
           });
         }
         setExitoMsg('¡Cuenta creada! Redirigiendo...');
-        setTimeout(() => router.push('/'), 1000);
+        await redirigirSegunRol();
       }
     }
     setCargando(false);
@@ -79,13 +104,34 @@ export default function LoginScreen() {
   const handleGoogle = async () => {
     setCargando(true);
     setErrorMsg('');
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: 'http://localhost:8082',
-      },
-    });
-    if (error) setErrorMsg('Error al iniciar sesión con Google.');
+    try {
+      await GoogleSignin.hasPlayServices();
+      const userInfo = await GoogleSignin.signIn();
+      const idToken = userInfo.data?.idToken;
+      if (!idToken) throw new Error('no_token');
+
+      const { error } = await supabase.auth.signInWithIdToken({
+        provider: 'google',
+        token: idToken,
+      });
+
+      if (error) {
+        setErrorMsg('Error al iniciar sesión con Google.');
+      } else {
+        setExitoMsg('¡Bienvenido! Iniciando sesión...');
+        await redirigirSegunRol();
+      }
+    } catch (err: any) {
+      if (err.code === statusCodes.SIGN_IN_CANCELLED) {
+        // usuario canceló, sin mensaje de error
+      } else if (err.code === statusCodes.IN_PROGRESS) {
+        setErrorMsg('Inicio de sesión en progreso, esperá un momento.');
+      } else if (err.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+        setErrorMsg('Google Play Services no disponible en este dispositivo.');
+      } else {
+        setErrorMsg('Error al iniciar sesión con Google.');
+      }
+    }
     setCargando(false);
   };
 

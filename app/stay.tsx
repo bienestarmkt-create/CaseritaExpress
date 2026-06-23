@@ -22,6 +22,7 @@ export default function StayScreen() {
   const [huespedes, setHuespedes] = useState(1);
   const [alojamientos, setAlojamientos] = useState<any[]>([]);
   const [cargando, setCargando] = useState(true);
+  const [errorCarga, setErrorCarga] = useState<string | null>(null);
 
   useEffect(() => {
     cargarAlojamientos();
@@ -29,12 +30,23 @@ export default function StayScreen() {
 
   const cargarAlojamientos = async () => {
     setCargando(true);
-    const { data } = await supabase
-      .from('alojamientos')
-      .select('*')
-      .eq('activo', true);
-    if (data) setAlojamientos(data);
-    setCargando(false);
+    setErrorCarga(null);
+    const TIMEOUT_MS = 12000;
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Tiempo de espera agotado. Verifica tu conexión.')), TIMEOUT_MS)
+    );
+    try {
+      const { data, error } = await Promise.race([
+        supabase.from('alojamientos').select('*').eq('activo', true),
+        timeout,
+      ]);
+      if (error) throw new Error(error.message);
+      setAlojamientos(data ?? []);
+    } catch (e: any) {
+      setErrorCarga(e?.message ?? 'Error al conectar con el servidor');
+    } finally {
+      setCargando(false);
+    }
   };
 
   const alojamientosFiltrados = alojamientos.filter(a => {
@@ -57,7 +69,7 @@ export default function StayScreen() {
       precio: modalReserva.precio_noche * noches,
       emoji: getEmoji(modalReserva.tipo),
       tipo: 'stay',
-      detalle: `${noches} noche${noches > 1 ? 's' : ''} • ${modalReserva.ciudad}`,
+      detalle: `${noches} noche${noches > 1 ? 's' : ''} • ${modalReserva.ciudad} | entrada:${fechaEntrada} salida:${fechaSalida}`,
     });
     setModalReserva(null);
     setFechaEntrada(null);
@@ -106,6 +118,14 @@ export default function StayScreen() {
           <View style={styles.loadingBox}>
             <ActivityIndicator size="large" color="#6B21A8" />
             <Text style={styles.loadingText}>Cargando alojamientos...</Text>
+          </View>
+        ) : errorCarga ? (
+          <View style={styles.loadingBox}>
+            <Text style={{ fontSize: 40, marginBottom: 8 }}>⚠️</Text>
+            <Text style={[styles.loadingText, { color: '#EF4444' }]}>{errorCarga}</Text>
+            <TouchableOpacity onPress={cargarAlojamientos} style={{ marginTop: 16, backgroundColor: '#6B21A8', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 12 }}>
+              <Text style={{ color: '#FFF', fontWeight: '700' }}>Reintentar</Text>
+            </TouchableOpacity>
           </View>
         ) : (
           <>

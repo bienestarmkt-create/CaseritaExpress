@@ -12,6 +12,7 @@ export default function EventosScreen() {
   const { agregarItem, totalItems } = useCarrito();
   const [eventos, setEventos] = useState<any[]>([]);
   const [cargando, setCargando] = useState(true);
+  const [errorCarga, setErrorCarga] = useState<string | null>(null);
   const [categoriaActiva, setCategoriaActiva] = useState('Todos');
   const [ciudadActiva, setCiudadActiva] = useState('Todas');
   const [eventoActivo, setEventoActivo] = useState<string | null>(null);
@@ -25,13 +26,23 @@ export default function EventosScreen() {
 
   const cargarEventos = async () => {
     setCargando(true);
-    const { data } = await supabase
-      .from('eventos')
-      .select('*')
-      .eq('activo', true)
-      .order('fecha_evento', { ascending: true });
-    if (data) setEventos(data);
-    setCargando(false);
+    setErrorCarga(null);
+    const TIMEOUT_MS = 12000;
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Tiempo de espera agotado. Verifica tu conexión.')), TIMEOUT_MS)
+    );
+    try {
+      const { data, error } = await Promise.race([
+        supabase.from('eventos').select('*').eq('activo', true).order('fecha_evento', { ascending: true }),
+        timeout,
+      ]);
+      if (error) throw new Error(error.message);
+      setEventos(data ?? []);
+    } catch (e: any) {
+      setErrorCarga(e?.message ?? 'Error al conectar con el servidor');
+    } finally {
+      setCargando(false);
+    }
   };
 
   const eventosFiltrados = eventos.filter(e => {
@@ -114,6 +125,14 @@ export default function EventosScreen() {
           <View style={styles.loadingBox}>
             <ActivityIndicator size="large" color="#7C3AED" />
             <Text style={styles.loadingText}>Cargando eventos...</Text>
+          </View>
+        ) : errorCarga ? (
+          <View style={styles.emptyBox}>
+            <Text style={styles.emptyEmoji}>⚠️</Text>
+            <Text style={[styles.emptyText, { color: '#EF4444' }]}>{errorCarga}</Text>
+            <TouchableOpacity onPress={cargarEventos} style={{ marginTop: 16, backgroundColor: '#7C3AED', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 12 }}>
+              <Text style={{ color: '#FFF', fontWeight: '700' }}>Reintentar</Text>
+            </TouchableOpacity>
           </View>
         ) : eventosFiltrados.length === 0 ? (
           <View style={styles.emptyBox}>

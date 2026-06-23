@@ -2,6 +2,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { Animated, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import MapaRepartidor from '../components/MapaRepartidor';
 import { supabase } from '../lib/supabase';
 
 // ─── ESTADO → ÍNDICE ─────────────────────────────────────
@@ -65,11 +66,15 @@ export default function SeguimientoScreen() {
   const [notifChat, setNotifChat] = useState(0);
   const [pedidoReal, setPedidoReal] = useState<any>(null);
   const [repartidorReal, setRepartidorReal] = useState<any>(null);
+  const [repartidorCoords, setRepartidorCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [destinoCoords, setDestinoCoords]       = useState<{ lat: number; lng: number } | null>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   // Cargar pedido real desde Supabase
   useEffect(() => {
-    let sub: any;
+    let pedidoSub: any;
+    let ubicacionSub: any;
+
     async function cargar() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
@@ -92,18 +97,44 @@ export default function SeguimientoScreen() {
       }
 
       if (pedidoId) {
-        sub = supabase
+        // Suscripción a cambios de estado del pedido
+        pedidoSub = supabase
           .channel(`pedido-${pedidoId}`)
           .on('postgres_changes', {
             event: 'UPDATE', schema: 'public', table: 'pedidos',
             filter: `id=eq.${pedidoId}`,
           }, (payload) => actualizarDesdeDB(payload.new))
           .subscribe();
+
+        // Cargar última ubicación conocida del repartidor
+        const { data: ubicActual } = await supabase
+          .from('ubicaciones_repartidores')
+          .select('lat, lng')
+          .eq('pedido_id', pedidoId)
+          .maybeSingle();
+        if (ubicActual) setRepartidorCoords({ lat: Number(ubicActual.lat), lng: Number(ubicActual.lng) });
+
+        // Suscripción Realtime a ubicación GPS del repartidor
+        ubicacionSub = supabase
+          .channel(`ubicacion-${pedidoId}`)
+          .on('postgres_changes', {
+            event: '*', schema: 'public', table: 'ubicaciones_repartidores',
+            filter: `pedido_id=eq.${pedidoId}`,
+          }, (payload) => {
+            const d = payload.new as any;
+            if (d?.lat && d?.lng) {
+              setRepartidorCoords({ lat: Number(d.lat), lng: Number(d.lng) });
+            }
+          })
+          .subscribe();
       }
     }
 
-    function actualizarDesdeDB(data: any) {
+    async function actualizarDesdeDB(data: any) {
       setPedidoReal(data);
+      if (data.destino_lat && data.destino_lng) {
+        setDestinoCoords({ lat: Number(data.destino_lat), lng: Number(data.destino_lng) });
+      }
       const idx = estadoAIndice(data.estado);
       setEstadoActual(idx);
       if (data.estado === 'entregado') {
@@ -112,11 +143,21 @@ export default function SeguimientoScreen() {
       }
       if (data.repartidor_nombre) {
         setRepartidorReal({ ...REPARTIDOR_DEFAULT, nombre: data.repartidor_nombre });
+      } else if (data.repartidor_id) {
+        const { data: u } = await supabase
+          .from('usuarios')
+          .select('nombre')
+          .eq('id', data.repartidor_id)
+          .single();
+        if (u?.nombre) setRepartidorReal({ ...REPARTIDOR_DEFAULT, nombre: u.nombre });
       }
     }
 
     cargar();
-    return () => { if (sub) supabase.removeChannel(sub); };
+    return () => {
+      if (pedidoSub) supabase.removeChannel(pedidoSub);
+      if (ubicacionSub) supabase.removeChannel(ubicacionSub);
+    };
   }, [params.pedidoId]);
 
   const REPARTIDOR = repartidorReal ?? REPARTIDOR_DEFAULT;
@@ -238,42 +279,9 @@ export default function SeguimientoScreen() {
         {/* ── TAB: MAPA / SEGUIMIENTO ─────────────────── */}
         {tabActiva === 'seguimiento' && (
           <View>
-            {/* Mapa simulado */}
+            {/* Mapa GPS — componente con Platform check interno */}
             <View style={s.mapaBox}>
-              <LinearGradient colors={['#BBF7D0','#A7F3D0']} style={s.mapaFondo}>
-                {/* Calles */}
-                {[20,42,65,85].map(p => (
-                  <View key={`h${p}`} style={[s.calleH, { top: `${p}%` as any }]} />
-                ))}
-                {[20,42,65,85].map(p => (
-                  <View key={`v${p}`} style={[s.calleV, { left: `${p}%` as any }]} />
-                ))}
-                {/* Restaurante */}
-                <View style={[s.pin, { top: '15%', left: '15%' }]}>
-                  <View style={[s.pinIcon, { backgroundColor: '#F97316' }]}>
-                    <Text style={s.pinEmoji}>🍔</Text>
-                  </View>
-                  <Text style={s.pinLabel}>Restaurante</Text>
-                </View>
-                {/* Repartidor */}
-                <Animated.View style={[s.pin, { top: '42%', left: '45%' }, { transform: [{ scale: pulseAnim }] }]}>
-                  <View style={[s.pinIcon, s.pinRepartidor]}>
-                    <Text style={s.pinEmoji}>🏍️</Text>
-                  </View>
-                  <Text style={s.pinLabel}>Carlos</Text>
-                </Animated.View>
-                {/* Destino */}
-                <View style={[s.pin, { top: '65%', left: '68%' }]}>
-                  <View style={[s.pinIcon, { backgroundColor: '#EF4444' }]}>
-                    <Text style={s.pinEmoji}>📍</Text>
-                  </View>
-                  <Text style={s.pinLabel}>Tu casa</Text>
-                </View>
-                {/* Etiqueta ciudad */}
-                <View style={s.ciudadTag}>
-                  <Text style={s.ciudadTagText}>📍 Tarija, Bolivia — Simulación</Text>
-                </View>
-              </LinearGradient>
+              <MapaRepartidor coords={repartidorCoords} destinoCoords={destinoCoords} />
             </View>
 
             {/* Línea de estados */}
@@ -555,16 +563,6 @@ const s = StyleSheet.create({
   tabLabelActivo:       { color: '#F97316', fontWeight: '700' },
   body:                 { flex: 1 },
   mapaBox:              { margin: 16, borderRadius: 20, overflow: 'hidden', elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.12, shadowRadius: 10 },
-  mapaFondo:            { height: 230, position: 'relative' },
-  calleH:               { position: 'absolute', left: 0, right: 0, height: 10, backgroundColor: 'rgba(255,255,255,0.55)' },
-  calleV:               { position: 'absolute', top: 0, bottom: 0, width: 10, backgroundColor: 'rgba(255,255,255,0.55)' },
-  pin:                  { position: 'absolute', alignItems: 'center' },
-  pinIcon:              { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#FFF', elevation: 4 },
-  pinRepartidor:        { backgroundColor: '#7C3AED', width: 48, height: 48, borderRadius: 24, borderWidth: 3 },
-  pinEmoji:             { fontSize: 20 },
-  pinLabel:             { fontSize: 10, fontWeight: '700', color: '#1E0A3C', backgroundColor: 'rgba(255,255,255,0.92)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8, marginTop: 3, overflow: 'hidden' },
-  ciudadTag:            { position: 'absolute', bottom: 10, left: 10, backgroundColor: 'rgba(255,255,255,0.92)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
-  ciudadTagText:        { fontSize: 11, color: '#374151', fontWeight: '600' },
   estadosCard:          { marginHorizontal: 16, marginTop: 0, backgroundColor: '#FFF', borderRadius: 20, padding: 20, elevation: 2 },
   estadosTitle:         { fontSize: 15, fontWeight: '700', color: '#1E0A3C', marginBottom: 16 },
   estadoFila:           { flexDirection: 'row' },

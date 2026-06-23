@@ -26,6 +26,7 @@ export default function DeliveryScreen() {
   const [restaurantes, setRestaurantes] = useState<any[]>([]);
   const [productos, setProductos] = useState<any[]>([]);
   const [cargando, setCargando] = useState(true);
+  const [errorCarga, setErrorCarga] = useState<string | null>(null);
 
   useEffect(() => {
     cargarDatos();
@@ -33,11 +34,29 @@ export default function DeliveryScreen() {
 
   const cargarDatos = async () => {
     setCargando(true);
-    const { data: negocios } = await supabase.from('negocios').select('*').eq('activo', true);
-    const { data: prods } = await supabase.from('productos').select('*').eq('disponible', true);
-    if (negocios) setRestaurantes(negocios);
-    if (prods) setProductos(prods);
-    setCargando(false);
+    setErrorCarga(null);
+    const TIMEOUT_MS = 12000;
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Tiempo de espera agotado. Verifica tu conexión.')), TIMEOUT_MS)
+    );
+    try {
+      const [{ data: negocios, error: errNegocios }, { data: prods, error: errProds }] =
+        await Promise.race([
+          Promise.all([
+            supabase.from('negocios').select('*').eq('activo', true),
+            supabase.from('productos').select('*').eq('disponible', true),
+          ]),
+          timeout,
+        ]);
+      if (errNegocios) throw new Error(errNegocios.message);
+      if (errProds) throw new Error(errProds.message);
+      setRestaurantes(negocios ?? []);
+      setProductos(prods ?? []);
+    } catch (e: any) {
+      setErrorCarga(e?.message ?? 'Error al conectar con el servidor');
+    } finally {
+      setCargando(false);
+    }
   };
 
   const restaurantesFiltrados = restaurantes.filter(r => {
@@ -124,6 +143,15 @@ export default function DeliveryScreen() {
           <View style={styles.loadingBox}>
             <ActivityIndicator size="large" color="#F97316" />
             <Text style={styles.loadingText}>Cargando restaurantes...</Text>
+          </View>
+        ) : errorCarga ? (
+          <View style={styles.emptyBox}>
+            <Text style={styles.emptyEmoji}>⚠️</Text>
+            <Text style={styles.emptyText}>No se pudo cargar los restaurantes</Text>
+            <Text style={[styles.emptyText, { fontSize: 12, color: '#EF4444', marginTop: 4 }]}>{errorCarga}</Text>
+            <TouchableOpacity onPress={cargarDatos} style={{ marginTop: 16, backgroundColor: '#F97316', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 12 }}>
+              <Text style={{ color: '#FFF', fontWeight: '700' }}>Reintentar</Text>
+            </TouchableOpacity>
           </View>
         ) : restaurantesFiltrados.length === 0 ? (
           <View style={styles.emptyBox}>
