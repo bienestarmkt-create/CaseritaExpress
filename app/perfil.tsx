@@ -22,7 +22,10 @@ export default function PerfilScreen() {
   const [pedidos, setPedidos]   = useState<any[]>([]);
   const [reservas, setReservas] = useState<any[]>([]);
   const [entradas, setEntradas] = useState<any[]>([]);
-  const [cargando, setCargando] = useState(true);
+  // 'cargando' = rol aún no confirmado; 'error' = la query falló tras reintentos;
+  // 'repartidor' / 'cliente' = rol confirmado desde la fila real en usuarios.
+  // Nunca se cae a 'cliente' por timeout o error — solo por dato confirmado.
+  const [rolEstado, setRolEstado] = useState<'cargando' | 'error' | 'repartidor' | 'cliente'>('cargando');
   const [entregasCompletadas, setEntregasCompletadas] = useState(0);
   const [enCaminoCount, setEnCaminoCount] = useState(0);
   // Edición de perfil — repartidor
@@ -35,53 +38,70 @@ export default function PerfilScreen() {
   useFocusEffect(useCallback(() => { cargarPerfil(); }, []));
 
   const cargarPerfil = async () => {
-    setCargando(true);
+    setRolEstado('cargando');
     const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      setUserId(user.id);
-      const { data: perfil } = await supabase.from('usuarios').select('*').eq('id', user.id).single();
-      const u = perfil || { email: user.email, nombre: user.email?.split('@')[0] };
-      setUsuario(u);
+    if (!user) { setRolEstado('error'); return; }
+    setUserId(user.id);
 
-      if (u?.rol === 'repartidor') {
-        setPerfilForm({
-          nombre:         u.nombre        ?? '',
-          telefono:       u.telefono      ?? '',
-          ci:             u.ci            ?? '',
-          edad:           u.edad != null  ? String(u.edad) : '',
-          vehiculo_tipo:  u.vehiculo_tipo ?? 'moto',
-          vehiculo_placa: u.vehiculo_placa ?? '',
-          licencia:       u.licencia      ?? '',
-          foto_url:       u.foto_url      ?? '',
-        });
-
-        const { count: completadas } = await supabase
-          .from('pedidos').select('id', { count: 'exact', head: true })
-          .eq('repartidor_id', user.id).eq('estado', 'entregado');
-        setEntregasCompletadas(completadas ?? 0);
-
-        const { count: enCamino } = await supabase
-          .from('pedidos').select('id', { count: 'exact', head: true })
-          .eq('repartidor_id', user.id).eq('estado', 'en_camino');
-        setEnCaminoCount(enCamino ?? 0);
-      } else {
-        const [{ data: misPedidos }, { data: misReservas }, { data: misEntradas }] = await Promise.all([
-          supabase.from('pedidos')
-            .select('id, created_at, total, estado, negocios(nombre)')
-            .eq('cliente_id', user.id).order('created_at', { ascending: false }),
-          supabase.from('reservas')
-            .select('id, created_at, total, pago_estado, noches, fecha_entrada, alojamientos(nombre)')
-            .eq('cliente_id', user.id).order('created_at', { ascending: false }),
-          supabase.from('entradas')
-            .select('id, created_at, total, pago_estado, cantidad, eventos(nombre)')
-            .eq('cliente_id', user.id).order('created_at', { ascending: false }),
-        ]);
-        if (misPedidos)  setPedidos(misPedidos);
-        if (misReservas) setReservas(misReservas);
-        if (misEntradas) setEntradas(misEntradas);
-      }
+    // Hasta 3 intentos en total antes de rendirse. Nunca caemos a la vista
+    // de cliente por una query lenta o fallida — solo por dato confirmado.
+    let perfil: any = null;
+    let ultimoError: any = null;
+    for (let intento = 0; intento < 3; intento++) {
+      const { data, error } = await supabase.from('usuarios').select('*').eq('id', user.id).single();
+      if (!error) { perfil = data; ultimoError = null; break; }
+      ultimoError = error;
+      if (intento < 2) await new Promise(r => setTimeout(r, 600 * (intento + 1)));
     }
-    setCargando(false);
+
+    if (ultimoError) {
+      setRolEstado('error');
+      return;
+    }
+
+    setUsuario(perfil);
+
+    if (perfil?.rol === 'repartidor') {
+      setPerfilForm({
+        nombre:         perfil.nombre        ?? '',
+        telefono:       perfil.telefono      ?? '',
+        ci:             perfil.ci            ?? '',
+        edad:           perfil.edad != null  ? String(perfil.edad) : '',
+        vehiculo_tipo:  perfil.vehiculo_tipo ?? 'moto',
+        vehiculo_placa: perfil.vehiculo_placa ?? '',
+        licencia:       perfil.licencia      ?? '',
+        foto_url:       perfil.foto_url      ?? '',
+      });
+
+      const { count: completadas } = await supabase
+        .from('pedidos').select('id', { count: 'exact', head: true })
+        .eq('repartidor_id', user.id).eq('estado', 'entregado');
+      setEntregasCompletadas(completadas ?? 0);
+
+      const { count: enCamino } = await supabase
+        .from('pedidos').select('id', { count: 'exact', head: true })
+        .eq('repartidor_id', user.id).eq('estado', 'en_camino');
+      setEnCaminoCount(enCamino ?? 0);
+
+      setRolEstado('repartidor');
+    } else {
+      const [{ data: misPedidos }, { data: misReservas }, { data: misEntradas }] = await Promise.all([
+        supabase.from('pedidos')
+          .select('id, created_at, total, estado, negocios(nombre)')
+          .eq('cliente_id', user.id).order('created_at', { ascending: false }),
+        supabase.from('reservas')
+          .select('id, created_at, total, pago_estado, noches, fecha_entrada, alojamientos(nombre)')
+          .eq('cliente_id', user.id).order('created_at', { ascending: false }),
+        supabase.from('entradas')
+          .select('id, created_at, total, pago_estado, cantidad, eventos(nombre)')
+          .eq('cliente_id', user.id).order('created_at', { ascending: false }),
+      ]);
+      if (misPedidos)  setPedidos(misPedidos);
+      if (misReservas) setReservas(misReservas);
+      if (misEntradas) setEntradas(misEntradas);
+
+      setRolEstado('cliente');
+    }
   };
 
   const cerrarSesion = async () => {
@@ -137,8 +157,32 @@ export default function PerfilScreen() {
 
   const toggleSeccion = (sec: string) => setSeccionActiva(seccionActiva === sec ? null : sec);
 
-  // ── VISTA REPARTIDOR ─────────────────────────────────────────────────────────
-  if (!cargando && usuario?.rol === 'repartidor') {
+  // ── CARGANDO: nunca mostrar la vista de cliente como default ───────────────────
+  if (rolEstado === 'cargando') {
+    return (
+      <View style={styles.estadoCentradoContainer}>
+        <ActivityIndicator size="large" color="#7C3AED" />
+        <Text style={styles.estadoCentradoTexto}>Cargando tu perfil...</Text>
+      </View>
+    );
+  }
+
+  // ── ERROR: la consulta del rol falló tras los reintentos ────────────────────────
+  if (rolEstado === 'error') {
+    return (
+      <View style={styles.estadoCentradoContainer}>
+        <Text style={styles.estadoCentradoEmoji}>⚠️</Text>
+        <Text style={styles.estadoCentradoTitulo}>No pudimos cargar tu perfil</Text>
+        <Text style={styles.estadoCentradoTexto}>Revisa tu conexión e intenta de nuevo</Text>
+        <TouchableOpacity style={styles.retryBtn} onPress={() => cargarPerfil()}>
+          <Text style={styles.retryBtnText}>🔄 Reintentar</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // ── VISTA REPARTIDOR — solo cuando el rol fue confirmado ────────────────────────
+  if (rolEstado === 'repartidor') {
     return (
       <View style={styles.container}>
         <LinearGradient colors={['#EA580C', '#F97316']} style={styles.header}>
@@ -493,6 +537,13 @@ const styles = StyleSheet.create({
   statLabelNaranja:    { fontSize: 11, color: 'rgba(255,255,255,0.8)', marginTop: 2 },
   statDivider:         { width: 1, backgroundColor: 'rgba(255,255,255,0.2)' },
   body:                { flex: 1 },
+  // Estados de carga / error (gate de rol)
+  estadoCentradoContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F8F7FF', paddingHorizontal: 32, gap: 8 },
+  estadoCentradoEmoji:     { fontSize: 48, marginBottom: 8 },
+  estadoCentradoTitulo:    { fontSize: 17, fontWeight: '800', color: '#1E0A3C', textAlign: 'center' },
+  estadoCentradoTexto:     { fontSize: 13, color: '#6B7280', textAlign: 'center' },
+  retryBtn:                { marginTop: 16, backgroundColor: '#7C3AED', borderRadius: 14, paddingHorizontal: 24, paddingVertical: 12 },
+  retryBtnText:            { color: '#FFF', fontWeight: '700', fontSize: 14 },
   // Repartidor — Mi Panel button
   repartidorBtn:       { marginHorizontal: 16, marginTop: 16, borderRadius: 16, overflow: 'hidden', elevation: 4, shadowColor: '#F97316', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.3, shadowRadius: 8 },
   repartidorGrad:      { flexDirection: 'row', alignItems: 'center', padding: 18, gap: 14 },
