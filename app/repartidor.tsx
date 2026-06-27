@@ -1,10 +1,8 @@
-import { Ionicons } from '@expo/vector-icons';
-import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Image, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { supabase } from '../lib/supabase';
 
 type Pedido = {
@@ -52,19 +50,12 @@ export default function RepartidorScreen() {
   const [pedidosDisponibles, setPedidosDisponibles] = useState<Pedido[]>([]);
   const [misEntregas, setMisEntregas] = useState<Pedido[]>([]);
   const [pedidosEntregados, setPedidosEntregados] = useState<Pedido[]>([]);
-  const [tab, setTab] = useState<'disponibles' | 'mis_entregas' | 'perfil'>('disponibles');
+  const [tab, setTab] = useState<'disponibles' | 'mis_entregas'>('disponibles');
   const [cargando, setCargando] = useState(true);
   const [actualizando, setActualizando] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [trackingPedidoId, setTrackingPedidoId] = useState<string | null>(null);
   const locationWatcherRef = useRef<Location.LocationSubscription | null>(null);
-  // Perfil
-  const [perfil, setPerfil] = useState({
-    nombre: '', telefono: '', ci: '', edad: '',
-    vehiculo_tipo: 'moto', vehiculo_placa: '', licencia: '', foto_url: '',
-  });
-  const [guardandoPerfil, setGuardandoPerfil] = useState(false);
-  const [email, setEmail] = useState('');
 
   useEffect(() => {
     init();
@@ -83,21 +74,8 @@ export default function RepartidorScreen() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { router.push('/login'); return; }
     setUserId(user.id);
-    setEmail(user.email ?? '');
     const { data: datos } = await supabase.from('usuarios').select('*').eq('id', user.id).single();
     setUsuario(datos);
-    if (datos) {
-      setPerfil({
-        nombre:         datos.nombre       ?? '',
-        telefono:       datos.telefono     ?? '',
-        ci:             datos.ci           ?? '',
-        edad:           datos.edad != null ? String(datos.edad) : '',
-        vehiculo_tipo:  datos.vehiculo_tipo ?? 'moto',
-        vehiculo_placa: datos.vehiculo_placa ?? '',
-        licencia:       datos.licencia     ?? '',
-        foto_url:       datos.foto_url     ?? '',
-      });
-    }
     await cargar(user.id);
     setCargando(false);
   }
@@ -235,42 +213,6 @@ export default function RepartidorScreen() {
     setActualizando(null);
   }
 
-  async function seleccionarFoto() {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') { Alert.alert('Permiso requerido', 'Necesitamos acceso a tu galería.'); return; }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
-    if (result.canceled || !result.assets.length || !userId) return;
-    setGuardandoPerfil(true);
-    try {
-      const uri = result.assets[0].uri;
-      const blob = await (await fetch(uri)).blob();
-      const buf  = await new Response(blob).arrayBuffer();
-      const path = `${userId}/foto_perfil.jpg`;
-      await supabase.storage.from('comprobantes').upload(path, buf, { contentType: 'image/jpeg', upsert: true });
-      const { data: urlData } = supabase.storage.from('comprobantes').getPublicUrl(path);
-      setPerfil(p => ({ ...p, foto_url: urlData.publicUrl }));
-    } catch (e: any) { Alert.alert('Error', e.message); }
-    setGuardandoPerfil(false);
-  }
-
-  async function guardarPerfil() {
-    if (!userId) return;
-    setGuardandoPerfil(true);
-    const { error } = await supabase.from('usuarios').update({
-      nombre:          perfil.nombre,
-      telefono:        perfil.telefono,
-      ci:              perfil.ci,
-      edad:            perfil.edad ? parseInt(perfil.edad) : null,
-      vehiculo_tipo:   perfil.vehiculo_tipo,
-      vehiculo_placa:  perfil.vehiculo_placa,
-      licencia:        perfil.licencia,
-      foto_url:        perfil.foto_url,
-    }).eq('id', userId);
-    setGuardandoPerfil(false);
-    if (error) Alert.alert('Error', error.message);
-    else Alert.alert('✅ Perfil guardado', 'Tus datos han sido actualizados.');
-  }
-
   const onRefresh = async () => {
     setRefreshing(true);
     await cargar();
@@ -333,123 +275,41 @@ export default function RepartidorScreen() {
             🏍️ Mis entregas ({misEntregas.length})
           </Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          style={[s.tabBtn, tab === 'perfil' && s.tabActivo]}
-          onPress={() => setTab('perfil')}>
-          <Text style={[s.tabLabel, tab === 'perfil' && s.tabLabelActivo]}>
-            👤 Perfil
-          </Text>
-        </TouchableOpacity>
       </View>
 
       {/* Lista pedidos */}
-      {tab !== 'perfil' && (
-        <ScrollView
-          style={s.body}
-          showsVerticalScrollIndicator={false}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#F97316']} />}>
-          {lista.length === 0 ? (
-            <View style={s.emptyBox}>
-              <Text style={s.emptyEmoji}>{tab === 'disponibles' ? '📭' : '🏍️'}</Text>
-              <Text style={s.emptyTitle}>
-                {tab === 'disponibles' ? 'No hay pedidos disponibles' : 'Sin entregas aún'}
-              </Text>
-              <Text style={s.emptySubtitle}>
-                {tab === 'disponibles'
-                  ? 'Cuando haya pedidos confirmados aparecerán aquí'
-                  : 'Acepta un pedido disponible para comenzar'}
-              </Text>
-            </View>
-          ) : (
-            lista.map(pedido => (
-              <PedidoCard
-                key={pedido.id}
-                pedido={pedido}
-                tab={tab}
-                actualizando={actualizando === pedido.id}
-                isTracking={trackingPedidoId === pedido.id}
-                onAceptar={() => tomarPedido(pedido.id)}
-                onEntregado={() => marcarEntregado(pedido.id)}
-                onCobrarEfectivo={() => cobrarEfectivo(pedido.id)}
-              />
-            ))
-          )}
-          <View style={{ height: 40 }} />
-        </ScrollView>
-      )}
-
-      {/* Tab Perfil */}
-      {tab === 'perfil' && (
-        <ScrollView style={s.body} showsVerticalScrollIndicator={false}>
-
-          {/* Perfil header: foto + nombre + email */}
-          <View style={s.perfilHeaderBox}>
-            <TouchableOpacity onPress={seleccionarFoto} style={s.fotoWrapper}>
-              <View style={s.fotoCiruclo}>
-                {perfil.foto_url
-                  ? <Image source={{ uri: perfil.foto_url }} style={s.fotoImg} />
-                  : <Ionicons name="person" size={36} color="#F97316" />}
-              </View>
-              <View style={s.camaraBadge}>
-                <Ionicons name="camera" size={12} color="#FFF" />
-              </View>
-            </TouchableOpacity>
-            <Text style={s.perfilNombre}>{perfil.nombre || 'Sin nombre'}</Text>
-            <Text style={s.perfilEmailText}>{email}</Text>
+      <ScrollView
+        style={s.body}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#F97316']} />}>
+        {lista.length === 0 ? (
+          <View style={s.emptyBox}>
+            <Text style={s.emptyEmoji}>{tab === 'disponibles' ? '📭' : '🏍️'}</Text>
+            <Text style={s.emptyTitle}>
+              {tab === 'disponibles' ? 'No hay pedidos disponibles' : 'Sin entregas aún'}
+            </Text>
+            <Text style={s.emptySubtitle}>
+              {tab === 'disponibles'
+                ? 'Cuando haya pedidos confirmados aparecerán aquí'
+                : 'Acepta un pedido disponible para comenzar'}
+            </Text>
           </View>
-
-          <View style={s.separador} />
-
-          {/* Datos personales */}
-          <View style={s.seccionCard}>
-            <Text style={s.seccionTitle}>Datos personales</Text>
-            <Text style={s.fieldLabel}>Nombre completo</Text>
-            <TextInput style={s.input} value={perfil.nombre} onChangeText={v => setPerfil(p => ({ ...p, nombre: v }))} placeholder="Tu nombre completo" placeholderTextColor="#9CA3AF" />
-            <Text style={s.fieldLabel}>Número de celular</Text>
-            <TextInput style={s.input} value={perfil.telefono} onChangeText={v => setPerfil(p => ({ ...p, telefono: v }))} placeholder="Ej: 70123456" placeholderTextColor="#9CA3AF" keyboardType="phone-pad" />
-            <Text style={s.fieldLabel}>Carnet de Identidad (CI)</Text>
-            <TextInput style={s.input} value={perfil.ci} onChangeText={v => setPerfil(p => ({ ...p, ci: v }))} placeholder="Ej: 12345678 LP" placeholderTextColor="#9CA3AF" />
-            <Text style={s.fieldLabel}>Edad</Text>
-            <TextInput style={s.input} value={perfil.edad} onChangeText={v => setPerfil(p => ({ ...p, edad: v }))} placeholder="Ej: 28" placeholderTextColor="#9CA3AF" keyboardType="numeric" />
-          </View>
-
-          {/* Vehículo */}
-          <View style={s.seccionCard}>
-            <Text style={s.seccionTitle}>Vehículo</Text>
-            <Text style={s.fieldLabel}>Tipo de vehículo</Text>
-            <View style={s.vehiculoRow}>
-              {(['moto', 'bicicleta', 'a pie'] as const).map(tipo => (
-                <TouchableOpacity
-                  key={tipo}
-                  style={[s.vehiculoBtn, perfil.vehiculo_tipo === tipo && s.vehiculoBtnActivo]}
-                  onPress={() => setPerfil(p => ({ ...p, vehiculo_tipo: tipo }))}>
-                  <Text style={[s.vehiculoBtnText, perfil.vehiculo_tipo === tipo && s.vehiculoBtnTextActivo]}>
-                    {tipo === 'moto' ? '🏍️ Moto' : tipo === 'bicicleta' ? '🚲 Bici' : '🚶 A pie'}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            {perfil.vehiculo_tipo !== 'a pie' && <>
-              <Text style={s.fieldLabel}>Placa del vehículo</Text>
-              <TextInput style={s.input} value={perfil.vehiculo_placa} onChangeText={v => setPerfil(p => ({ ...p, vehiculo_placa: v }))} placeholder="Ej: 1234-ABC" placeholderTextColor="#9CA3AF" autoCapitalize="characters" />
-            </>}
-            <Text style={s.fieldLabel}>Número de licencia de conducir</Text>
-            <TextInput style={s.input} value={perfil.licencia} onChangeText={v => setPerfil(p => ({ ...p, licencia: v }))} placeholder="Ej: 00123456" placeholderTextColor="#9CA3AF" />
-          </View>
-
-          {/* Botón guardar */}
-          <TouchableOpacity
-            style={[s.btnGuardar, guardandoPerfil && s.btnDisabled]}
-            onPress={guardarPerfil}
-            disabled={guardandoPerfil}>
-            {guardandoPerfil
-              ? <ActivityIndicator color="#FFF" />
-              : <Text style={s.btnGuardarText}>💾 Guardar perfil</Text>}
-          </TouchableOpacity>
-
-          <View style={{ height: 40 }} />
-        </ScrollView>
-      )}
+        ) : (
+          lista.map(pedido => (
+            <PedidoCard
+              key={pedido.id}
+              pedido={pedido}
+              tab={tab}
+              actualizando={actualizando === pedido.id}
+              isTracking={trackingPedidoId === pedido.id}
+              onAceptar={() => tomarPedido(pedido.id)}
+              onEntregado={() => marcarEntregado(pedido.id)}
+              onCobrarEfectivo={() => cobrarEfectivo(pedido.id)}
+            />
+          ))
+        )}
+        <View style={{ height: 40 }} />
+      </ScrollView>
     </View>
   );
 }
@@ -652,24 +512,4 @@ const s = StyleSheet.create({
   btnCobrarEfectivoText:  { color: '#FFF', fontWeight: '800', fontSize: 15 },
   gpsBadge:               { backgroundColor: '#EFF6FF', borderWidth: 1.5, borderColor: '#3B82F6', borderRadius: 12, padding: 10, alignItems: 'center', marginBottom: 10 },
   gpsBadgeText:           { color: '#1D4ED8', fontWeight: '700', fontSize: 13 },
-  // Perfil tab
-  perfilHeaderBox:      { alignItems: 'center', paddingVertical: 28 },
-  fotoWrapper:          { marginBottom: 14 },
-  fotoCiruclo:          { width: 80, height: 80, borderRadius: 40, backgroundColor: '#FFF7ED', borderWidth: 3, borderColor: '#F97316', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
-  fotoImg:              { width: 80, height: 80, borderRadius: 40 },
-  camaraBadge:          { position: 'absolute', bottom: 0, right: -4, backgroundColor: '#F97316', borderRadius: 12, width: 24, height: 24, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#FFF' },
-  perfilNombre:         { fontSize: 20, fontWeight: '800', color: '#1E0A3C', marginBottom: 4 },
-  perfilEmailText:      { fontSize: 13, color: '#9CA3AF' },
-  separador:            { height: 1, backgroundColor: '#F3F4F6', marginHorizontal: 16, marginBottom: 8 },
-  seccionCard:          { backgroundColor: '#FFF', borderRadius: 16, padding: 16, marginBottom: 14, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 6 },
-  seccionTitle:         { fontSize: 15, fontWeight: '700', color: '#1E0A3C', marginBottom: 14 },
-  fieldLabel:           { fontSize: 12, fontWeight: '600', color: '#6B7280', marginBottom: 4, marginTop: 10 },
-  input:                { backgroundColor: '#F9FAFB', borderWidth: 1.5, borderColor: '#E5E7EB', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 11, fontSize: 14, color: '#111827' },
-  vehiculoRow:          { flexDirection: 'row', gap: 8, marginBottom: 4 },
-  vehiculoBtn:          { flex: 1, paddingVertical: 10, borderRadius: 12, borderWidth: 1.5, borderColor: '#E5E7EB', alignItems: 'center', backgroundColor: '#F9FAFB' },
-  vehiculoBtnActivo:    { borderColor: '#F97316', backgroundColor: '#FFF7ED' },
-  vehiculoBtnText:      { fontSize: 12, fontWeight: '600', color: '#9CA3AF' },
-  vehiculoBtnTextActivo:{ color: '#EA580C' },
-  btnGuardar:           { backgroundColor: '#F97316', borderRadius: 16, padding: 17, alignItems: 'center', marginBottom: 8 },
-  btnGuardarText:       { color: '#FFF', fontWeight: '800', fontSize: 16 },
 });

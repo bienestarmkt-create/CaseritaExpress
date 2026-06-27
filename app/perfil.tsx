@@ -1,7 +1,8 @@
 import { LinearGradient } from 'expo-linear-gradient';
+import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { supabase } from '../lib/supabase';
 
 const getEstadoColor = (estado: string) => {
@@ -17,12 +18,19 @@ export default function PerfilScreen() {
   const [seccionActiva, setSeccionActiva] = useState<string | null>(null);
   const [modalCerrar, setModalCerrar] = useState(false);
   const [usuario, setUsuario] = useState<any>(null);
+  const [userId, setUserId]   = useState<string | null>(null);
   const [pedidos, setPedidos]   = useState<any[]>([]);
   const [reservas, setReservas] = useState<any[]>([]);
   const [entradas, setEntradas] = useState<any[]>([]);
   const [cargando, setCargando] = useState(true);
   const [entregasCompletadas, setEntregasCompletadas] = useState(0);
   const [enCaminoCount, setEnCaminoCount] = useState(0);
+  // Edición de perfil — repartidor
+  const [perfilForm, setPerfilForm] = useState({
+    nombre: '', telefono: '', ci: '', edad: '',
+    vehiculo_tipo: 'moto', vehiculo_placa: '', licencia: '', foto_url: '',
+  });
+  const [guardandoPerfil, setGuardandoPerfil] = useState(false);
 
   useFocusEffect(useCallback(() => { cargarPerfil(); }, []));
 
@@ -30,11 +38,23 @@ export default function PerfilScreen() {
     setCargando(true);
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
+      setUserId(user.id);
       const { data: perfil } = await supabase.from('usuarios').select('*').eq('id', user.id).single();
       const u = perfil || { email: user.email, nombre: user.email?.split('@')[0] };
       setUsuario(u);
 
       if (u?.rol === 'repartidor') {
+        setPerfilForm({
+          nombre:         u.nombre        ?? '',
+          telefono:       u.telefono      ?? '',
+          ci:             u.ci            ?? '',
+          edad:           u.edad != null  ? String(u.edad) : '',
+          vehiculo_tipo:  u.vehiculo_tipo ?? 'moto',
+          vehiculo_placa: u.vehiculo_placa ?? '',
+          licencia:       u.licencia      ?? '',
+          foto_url:       u.foto_url      ?? '',
+        });
+
         const { count: completadas } = await supabase
           .from('pedidos').select('id', { count: 'exact', head: true })
           .eq('repartidor_id', user.id).eq('estado', 'entregado');
@@ -66,8 +86,53 @@ export default function PerfilScreen() {
 
   const cerrarSesion = async () => {
     setModalCerrar(false);
-    await supabase.auth.signOut();
+    // Si signOut() lanza una excepción, el redirect debe ejecutarse igual —
+    // antes, un error aquí dejaba al usuario "atascado" con sesión visualmente activa.
+    try {
+      await supabase.auth.signOut();
+    } catch (e) {
+      console.error('[logout] Error al cerrar sesión:', e);
+    }
     router.replace('/login');
+  };
+
+  const seleccionarFoto = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') { Alert.alert('Permiso requerido', 'Necesitamos acceso a tu galería.'); return; }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
+    if (result.canceled || !result.assets.length || !userId) return;
+    setGuardandoPerfil(true);
+    try {
+      const uri = result.assets[0].uri;
+      const blob = await (await fetch(uri)).blob();
+      const buf  = await new Response(blob).arrayBuffer();
+      const path = `${userId}/foto_perfil.jpg`;
+      await supabase.storage.from('comprobantes').upload(path, buf, { contentType: 'image/jpeg', upsert: true });
+      const { data: urlData } = supabase.storage.from('comprobantes').getPublicUrl(path);
+      setPerfilForm(p => ({ ...p, foto_url: urlData.publicUrl }));
+    } catch (e: any) { Alert.alert('Error', e.message); }
+    setGuardandoPerfil(false);
+  };
+
+  const guardarPerfilRepartidor = async () => {
+    if (!userId) return;
+    setGuardandoPerfil(true);
+    const { error } = await supabase.from('usuarios').update({
+      nombre:          perfilForm.nombre,
+      telefono:        perfilForm.telefono,
+      ci:              perfilForm.ci,
+      edad:            perfilForm.edad ? parseInt(perfilForm.edad) : null,
+      vehiculo_tipo:   perfilForm.vehiculo_tipo,
+      vehiculo_placa:  perfilForm.vehiculo_placa,
+      licencia:        perfilForm.licencia,
+      foto_url:        perfilForm.foto_url,
+    }).eq('id', userId);
+    setGuardandoPerfil(false);
+    if (error) Alert.alert('Error', error.message);
+    else {
+      Alert.alert('✅ Perfil guardado', 'Tus datos han sido actualizados.');
+      setUsuario((prev: any) => ({ ...prev, ...perfilForm }));
+    }
   };
 
   const toggleSeccion = (sec: string) => setSeccionActiva(seccionActiva === sec ? null : sec);
@@ -128,28 +193,61 @@ export default function PerfilScreen() {
             </LinearGradient>
           </TouchableOpacity>
 
-          {/* Mis datos (solo lectura) */}
-          <View style={styles.datoCard}>
-            <Text style={styles.datoCardTitle}>📋 Mis datos</Text>
-            <View style={styles.datoRow}>
-              <Text style={styles.datoLabel}>Nombre</Text>
-              <Text style={styles.datoValor}>{usuario?.nombre || '—'}</Text>
-            </View>
-            <View style={styles.datoRow}>
-              <Text style={styles.datoLabel}>Teléfono</Text>
-              <Text style={styles.datoValor}>{usuario?.telefono || '—'}</Text>
-            </View>
-            <View style={[styles.datoRow, { borderBottomWidth: 0 }]}>
-              <Text style={styles.datoLabel}>Vehículo</Text>
-              <Text style={styles.datoValor}>
-                {usuario?.vehiculo_tipo === 'moto' ? '🏍️ Moto'
-                  : usuario?.vehiculo_tipo === 'bicicleta' ? '🚲 Bicicleta'
-                  : usuario?.vehiculo_tipo === 'a pie' ? '🚶 A pie'
-                  : '—'}
-              </Text>
-            </View>
+          {/* Editar mis datos */}
+          <View style={styles.seccionCardRepartidor}>
+            <TouchableOpacity onPress={seleccionarFoto} style={styles.fotoWrapper}>
+              <View style={styles.fotoCirculo}>
+                {perfilForm.foto_url
+                  ? <Image source={{ uri: perfilForm.foto_url }} style={styles.fotoImg} />
+                  : <Text style={styles.avatarEmoji}>🏍️</Text>}
+              </View>
+              <View style={styles.camaraBadge}>
+                <Text style={styles.camaraBadgeText}>📷</Text>
+              </View>
+            </TouchableOpacity>
+
+            <Text style={styles.datoCardTitle}>📋 Datos personales</Text>
+            <Text style={styles.fieldLabel}>Nombre completo</Text>
+            <TextInput style={styles.input} value={perfilForm.nombre} onChangeText={v => setPerfilForm(p => ({ ...p, nombre: v }))} placeholder="Tu nombre completo" placeholderTextColor="#9CA3AF" />
+            <Text style={styles.fieldLabel}>Número de celular</Text>
+            <TextInput style={styles.input} value={perfilForm.telefono} onChangeText={v => setPerfilForm(p => ({ ...p, telefono: v }))} placeholder="Ej: 70123456" placeholderTextColor="#9CA3AF" keyboardType="phone-pad" />
+            <Text style={styles.fieldLabel}>Carnet de Identidad (CI)</Text>
+            <TextInput style={styles.input} value={perfilForm.ci} onChangeText={v => setPerfilForm(p => ({ ...p, ci: v }))} placeholder="Ej: 12345678 LP" placeholderTextColor="#9CA3AF" />
+            <Text style={styles.fieldLabel}>Edad</Text>
+            <TextInput style={styles.input} value={perfilForm.edad} onChangeText={v => setPerfilForm(p => ({ ...p, edad: v }))} placeholder="Ej: 28" placeholderTextColor="#9CA3AF" keyboardType="numeric" />
           </View>
-          <Text style={styles.datoHint}>Edita tus datos en Mi Panel → Perfil</Text>
+
+          <View style={styles.seccionCardRepartidor}>
+            <Text style={styles.datoCardTitle}>Vehículo</Text>
+            <Text style={styles.fieldLabel}>Tipo de vehículo</Text>
+            <View style={styles.vehiculoRow}>
+              {(['moto', 'bicicleta', 'a pie'] as const).map(tipo => (
+                <TouchableOpacity
+                  key={tipo}
+                  style={[styles.vehiculoBtn, perfilForm.vehiculo_tipo === tipo && styles.vehiculoBtnActivo]}
+                  onPress={() => setPerfilForm(p => ({ ...p, vehiculo_tipo: tipo }))}>
+                  <Text style={[styles.vehiculoBtnText, perfilForm.vehiculo_tipo === tipo && styles.vehiculoBtnTextActivo]}>
+                    {tipo === 'moto' ? '🏍️ Moto' : tipo === 'bicicleta' ? '🚲 Bici' : '🚶 A pie'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            {perfilForm.vehiculo_tipo !== 'a pie' && <>
+              <Text style={styles.fieldLabel}>Placa del vehículo</Text>
+              <TextInput style={styles.input} value={perfilForm.vehiculo_placa} onChangeText={v => setPerfilForm(p => ({ ...p, vehiculo_placa: v }))} placeholder="Ej: 1234-ABC" placeholderTextColor="#9CA3AF" autoCapitalize="characters" />
+            </>}
+            <Text style={styles.fieldLabel}>Número de licencia de conducir</Text>
+            <TextInput style={styles.input} value={perfilForm.licencia} onChangeText={v => setPerfilForm(p => ({ ...p, licencia: v }))} placeholder="Ej: 00123456" placeholderTextColor="#9CA3AF" />
+          </View>
+
+          <TouchableOpacity
+            style={[styles.btnGuardarPerfil, guardandoPerfil && styles.btnDisabled]}
+            onPress={guardarPerfilRepartidor}
+            disabled={guardandoPerfil}>
+            {guardandoPerfil
+              ? <ActivityIndicator color="#FFF" />
+              : <Text style={styles.btnGuardarPerfilText}>💾 Guardar perfil</Text>}
+          </TouchableOpacity>
 
           {/* Cerrar sesión */}
           <TouchableOpacity style={styles.cerrarBtn} onPress={() => setModalCerrar(true)}>
@@ -402,13 +500,24 @@ const styles = StyleSheet.create({
   repartidorBtnTitle:  { color: '#FFF', fontWeight: '800', fontSize: 16 },
   repartidorBtnSub:    { color: 'rgba(255,255,255,0.8)', fontSize: 12, marginTop: 2 },
   repartidorBtnArrow:  { color: '#FFF', fontSize: 28, fontWeight: '300' },
-  // Repartidor — Mis datos
-  datoCard:            { marginHorizontal: 16, marginTop: 12, backgroundColor: '#FFF', borderRadius: 16, paddingHorizontal: 16, paddingTop: 14, paddingBottom: 4, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 6 },
-  datoCardTitle:       { fontSize: 14, fontWeight: '700', color: '#1E0A3C', marginBottom: 12 },
-  datoRow:             { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
-  datoLabel:           { fontSize: 13, color: '#9CA3AF', fontWeight: '500' },
-  datoValor:           { fontSize: 13, color: '#1E0A3C', fontWeight: '600' },
-  datoHint:            { textAlign: 'center', fontSize: 11, color: '#9CA3AF', marginTop: 6, marginBottom: 4 },
+  // Repartidor — Editar perfil
+  datoCardTitle:        { fontSize: 14, fontWeight: '700', color: '#1E0A3C', marginBottom: 12 },
+  seccionCardRepartidor:{ marginHorizontal: 16, marginTop: 12, backgroundColor: '#FFF', borderRadius: 16, padding: 16, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 6 },
+  fotoWrapper:          { alignSelf: 'center', marginBottom: 16 },
+  fotoCirculo:          { width: 72, height: 72, borderRadius: 36, backgroundColor: '#FFF7ED', borderWidth: 3, borderColor: '#F97316', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  fotoImg:              { width: 72, height: 72, borderRadius: 36 },
+  camaraBadge:          { position: 'absolute', bottom: 0, right: -4, backgroundColor: '#F97316', borderRadius: 12, width: 24, height: 24, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#FFF' },
+  camaraBadgeText:      { fontSize: 11 },
+  fieldLabel:           { fontSize: 12, fontWeight: '600', color: '#6B7280', marginBottom: 4, marginTop: 10 },
+  input:                { backgroundColor: '#F9FAFB', borderWidth: 1.5, borderColor: '#E5E7EB', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 11, fontSize: 14, color: '#111827' },
+  vehiculoRow:          { flexDirection: 'row', gap: 8, marginBottom: 4 },
+  vehiculoBtn:          { flex: 1, paddingVertical: 10, borderRadius: 12, borderWidth: 1.5, borderColor: '#E5E7EB', alignItems: 'center', backgroundColor: '#F9FAFB' },
+  vehiculoBtnActivo:    { borderColor: '#F97316', backgroundColor: '#FFF7ED' },
+  vehiculoBtnText:      { fontSize: 12, fontWeight: '600', color: '#9CA3AF' },
+  vehiculoBtnTextActivo:{ color: '#EA580C' },
+  btnGuardarPerfil:     { marginHorizontal: 16, backgroundColor: '#F97316', borderRadius: 16, padding: 17, alignItems: 'center', marginBottom: 8 },
+  btnGuardarPerfilText: { color: '#FFF', fontWeight: '800', fontSize: 16 },
+  btnDisabled:          { opacity: 0.6 },
   // Cliente — Historial
   seccionHeader:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#FFF', marginHorizontal: 16, marginTop: 12, padding: 16, borderRadius: 16, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 6 },
   seccionLeft:         { flexDirection: 'row', alignItems: 'center', gap: 10 },
