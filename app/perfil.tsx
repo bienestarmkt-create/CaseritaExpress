@@ -37,70 +37,91 @@ export default function PerfilScreen() {
 
   useFocusEffect(useCallback(() => { cargarPerfil(); }, []));
 
+  // Evita que un await cuelgue para siempre cuando la red se queda muda
+  // (sin esto, una promesa de Supabase que nunca resuelve deja la pantalla
+  // pegada en 'cargando' sin manera de salir).
+  const conTimeout = <T,>(promesa: PromiseLike<T>, ms: number): Promise<T> => {
+    return Promise.race([
+      promesa,
+      new Promise<T>((_, reject) => setTimeout(() => reject(new Error('Tiempo de espera agotado')), ms)),
+    ]);
+  };
+
   const cargarPerfil = async () => {
     setRolEstado('cargando');
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setRolEstado('error'); return; }
-    setUserId(user.id);
+    try {
+      const { data: { user } } = await conTimeout(supabase.auth.getUser(), 8000);
+      if (!user) { setRolEstado('error'); return; }
+      setUserId(user.id);
 
-    // Hasta 3 intentos en total antes de rendirse. Nunca caemos a la vista
-    // de cliente por una query lenta o fallida — solo por dato confirmado.
-    let perfil: any = null;
-    let ultimoError: any = null;
-    for (let intento = 0; intento < 3; intento++) {
-      const { data, error } = await supabase.from('usuarios').select('*').eq('id', user.id).single();
-      if (!error) { perfil = data; ultimoError = null; break; }
-      ultimoError = error;
-      if (intento < 2) await new Promise(r => setTimeout(r, 600 * (intento + 1)));
-    }
+      // Hasta 3 intentos en total antes de rendirse. Nunca caemos a la vista
+      // de cliente por una query lenta o fallida — solo por dato confirmado.
+      let perfil: any = null;
+      let ultimoError: any = null;
+      for (let intento = 0; intento < 3; intento++) {
+        const { data, error } = await conTimeout(
+          supabase.from('usuarios').select('*').eq('id', user.id).single(),
+          8000
+        );
+        if (!error) { perfil = data; ultimoError = null; break; }
+        ultimoError = error;
+        if (intento < 2) await new Promise(r => setTimeout(r, 600 * (intento + 1)));
+      }
 
-    if (ultimoError) {
+      if (ultimoError) {
+        setRolEstado('error');
+        return;
+      }
+
+      setUsuario(perfil);
+
+      if (perfil?.rol === 'repartidor') {
+        setPerfilForm({
+          nombre:         perfil.nombre        ?? '',
+          telefono:       perfil.telefono      ?? '',
+          ci:             perfil.ci            ?? '',
+          edad:           perfil.edad != null  ? String(perfil.edad) : '',
+          vehiculo_tipo:  perfil.vehiculo_tipo ?? 'moto',
+          vehiculo_placa: perfil.vehiculo_placa ?? '',
+          licencia:       perfil.licencia      ?? '',
+          foto_url:       perfil.foto_url      ?? '',
+        });
+
+        const { count: completadas } = await supabase
+          .from('pedidos').select('id', { count: 'exact', head: true })
+          .eq('repartidor_id', user.id).eq('estado', 'entregado');
+        setEntregasCompletadas(completadas ?? 0);
+
+        const { count: enCamino } = await supabase
+          .from('pedidos').select('id', { count: 'exact', head: true })
+          .eq('repartidor_id', user.id).eq('estado', 'en_camino');
+        setEnCaminoCount(enCamino ?? 0);
+
+        setRolEstado('repartidor');
+      } else {
+        const [{ data: misPedidos }, { data: misReservas }, { data: misEntradas }] = await conTimeout(
+          Promise.all([
+            supabase.from('pedidos')
+              .select('id, created_at, total, estado, negocios(nombre)')
+              .eq('cliente_id', user.id).order('created_at', { ascending: false }),
+            supabase.from('reservas')
+              .select('id, created_at, total, pago_estado, noches, fecha_entrada, alojamientos(nombre)')
+              .eq('cliente_id', user.id).order('created_at', { ascending: false }),
+            supabase.from('entradas')
+              .select('id, created_at, total, pago_estado, cantidad, eventos(nombre)')
+              .eq('cliente_id', user.id).order('created_at', { ascending: false }),
+          ]),
+          8000
+        );
+        if (misPedidos)  setPedidos(misPedidos);
+        if (misReservas) setReservas(misReservas);
+        if (misEntradas) setEntradas(misEntradas);
+
+        setRolEstado('cliente');
+      }
+    } catch (e) {
+      console.error('[perfil] Error cargando perfil:', e);
       setRolEstado('error');
-      return;
-    }
-
-    setUsuario(perfil);
-
-    if (perfil?.rol === 'repartidor') {
-      setPerfilForm({
-        nombre:         perfil.nombre        ?? '',
-        telefono:       perfil.telefono      ?? '',
-        ci:             perfil.ci            ?? '',
-        edad:           perfil.edad != null  ? String(perfil.edad) : '',
-        vehiculo_tipo:  perfil.vehiculo_tipo ?? 'moto',
-        vehiculo_placa: perfil.vehiculo_placa ?? '',
-        licencia:       perfil.licencia      ?? '',
-        foto_url:       perfil.foto_url      ?? '',
-      });
-
-      const { count: completadas } = await supabase
-        .from('pedidos').select('id', { count: 'exact', head: true })
-        .eq('repartidor_id', user.id).eq('estado', 'entregado');
-      setEntregasCompletadas(completadas ?? 0);
-
-      const { count: enCamino } = await supabase
-        .from('pedidos').select('id', { count: 'exact', head: true })
-        .eq('repartidor_id', user.id).eq('estado', 'en_camino');
-      setEnCaminoCount(enCamino ?? 0);
-
-      setRolEstado('repartidor');
-    } else {
-      const [{ data: misPedidos }, { data: misReservas }, { data: misEntradas }] = await Promise.all([
-        supabase.from('pedidos')
-          .select('id, created_at, total, estado, negocios(nombre)')
-          .eq('cliente_id', user.id).order('created_at', { ascending: false }),
-        supabase.from('reservas')
-          .select('id, created_at, total, pago_estado, noches, fecha_entrada, alojamientos(nombre)')
-          .eq('cliente_id', user.id).order('created_at', { ascending: false }),
-        supabase.from('entradas')
-          .select('id, created_at, total, pago_estado, cantidad, eventos(nombre)')
-          .eq('cliente_id', user.id).order('created_at', { ascending: false }),
-      ]);
-      if (misPedidos)  setPedidos(misPedidos);
-      if (misReservas) setReservas(misReservas);
-      if (misEntradas) setEntradas(misEntradas);
-
-      setRolEstado('cliente');
     }
   };
 
