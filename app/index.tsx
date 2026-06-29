@@ -1,7 +1,7 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Dimensions, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Animated, Dimensions, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { supabase } from '../lib/supabase';
 
 const { width } = Dimensions.get('window');
@@ -13,7 +13,12 @@ export default function HomeScreen() {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(40)).current;
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
-  const [rol, setRol] = useState<string | null>(null);
+  // 'cargando' = hay sesión y su rol aún no se confirmó; 'error' = /api/get-rol
+  // falló tras reintentos; 'repartidor' / 'cliente' = rol confirmado. Arranca en
+  // 'cliente' para que el visitante sin sesión vea la vitrina pública de inmediato,
+  // sin esperar — el gate de carga solo se activa una vez que resolverSesion()
+  // detecta una sesión real. Nunca se cae a 'cliente' por timeout o error.
+  const [rolEstado, setRolEstado] = useState<'cargando' | 'error' | 'repartidor' | 'cliente'>('cliente');
 
   const extractUserInfo = (session: any): UserInfo | null => {
     if (!session?.user) return null;
@@ -24,39 +29,108 @@ export default function HomeScreen() {
     return { name, avatarUrl };
   };
 
+  // Evita que un await cuelgue para siempre cuando la red se queda muda.
+  const conTimeout = <T,>(promesa: PromiseLike<T>, ms: number): Promise<T> => {
+    return Promise.race([
+      promesa,
+      new Promise<T>((_, reject) => setTimeout(() => reject(new Error('Tiempo de espera agotado')), ms)),
+    ]);
+  };
+
+  // Misma fuente de verdad que _layout.tsx (/api/get-rol, usa service_role y
+  // bypasea RLS) — a diferencia de la query directa anterior a 'usuarios', que
+  // quedaba sujeta a RLS y podía fallar en silencio. Nunca devuelve 'cliente'
+  // por defecto: si todos los intentos fallan, lanza para que el caller decida.
+  const obtenerRol = async (token: string): Promise<string> => {
+    const base =
+      typeof window !== 'undefined' && window.location?.origin
+        ? window.location.origin
+        : 'https://www.caseritaexpress.com';
+
+    let ultimoError: any = null;
+    for (let intento = 0; intento < 3; intento++) {
+      try {
+        const res = await conTimeout(
+          fetch(`${base}/api/get-rol`, { headers: { Authorization: `Bearer ${token}` } }),
+          8000
+        );
+        if (!res.ok) throw new Error(`get-rol respondió ${res.status}`);
+        const json = await res.json();
+        return (json.rol as string) ?? 'cliente';
+      } catch (e) {
+        ultimoError = e;
+        if (intento < 2) await new Promise(r => setTimeout(r, 600 * (intento + 1)));
+      }
+    }
+    throw ultimoError;
+  };
+
+  const resolverSesion = async (session: any) => {
+    setUserInfo(extractUserInfo(session));
+
+    if (!session?.user) {
+      // Sin sesión es un dato confirmado (vitrina pública), no un fallback por error.
+      setRolEstado('cliente');
+      return;
+    }
+
+    setRolEstado('cargando');
+    try {
+      const rol = await obtenerRol(session.access_token);
+      setRolEstado(rol === 'repartidor' ? 'repartidor' : 'cliente');
+    } catch (e) {
+      console.error('[index] Error obteniendo rol:', e);
+      setRolEstado('error');
+    }
+  };
+
   useEffect(() => {
     Animated.parallel([
       Animated.timing(fadeAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
       Animated.timing(slideAnim, { toValue: 0, duration: 800, useNativeDriver: true }),
     ]).start();
 
-    supabase.auth.getSession().then(({ data }) => {
-      setUserInfo(extractUserInfo(data.session));
-      if (data.session?.user) {
-        supabase.from('usuarios').select('rol').eq('id', data.session.user.id).single()
-          .then(({ data: u }) => setRol((u as { rol: string } | null)?.rol ?? 'cliente'));
-      }
-    });
+    supabase.auth.getSession().then(({ data }) => resolverSesion(data.session));
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUserInfo(extractUserInfo(session));
-      if (session?.user) {
-        supabase.from('usuarios').select('rol').eq('id', session.user.id).single()
-          .then(({ data: u }) => setRol((u as { rol: string } | null)?.rol ?? 'cliente'));
-      } else {
-        setRol(null);
-      }
+      resolverSesion(session);
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  // Red de seguridad: si un repartidor llega a /index, redirigir inmediatamente
+  // Repartidor confirmado: redirigir a su panel sin mostrar antes la vista de cliente.
   useEffect(() => {
-    if (rol === 'repartidor') {
+    if (rolEstado === 'repartidor') {
       router.replace('/repartidor' as any);
     }
-  }, [rol]);
+  }, [rolEstado]);
+
+  // ── CARGANDO / REDIRIGIENDO: nunca mostrar la vitrina de cliente a un repartidor ──
+  if (rolEstado === 'cargando' || rolEstado === 'repartidor') {
+    return (
+      <View style={styles.estadoCentradoContainer}>
+        <ActivityIndicator size="large" color="#F97316" />
+        <Text style={styles.estadoCentradoTexto}>Cargando...</Text>
+      </View>
+    );
+  }
+
+  // ── ERROR: la verificación de rol falló tras los reintentos ──────────────────
+  if (rolEstado === 'error') {
+    return (
+      <View style={styles.estadoCentradoContainer}>
+        <Text style={styles.estadoCentradoEmoji}>⚠️</Text>
+        <Text style={styles.estadoCentradoTitulo}>No pudimos verificar tu cuenta</Text>
+        <Text style={styles.estadoCentradoTexto}>Revisa tu conexión e intenta de nuevo</Text>
+        <TouchableOpacity
+          style={styles.retryBtn}
+          onPress={() => supabase.auth.getSession().then(({ data }) => resolverSesion(data.session))}>
+          <Text style={styles.retryBtnText}>🔄 Reintentar</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
@@ -159,6 +233,12 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8F7FF' },
+  estadoCentradoContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F8F7FF', paddingHorizontal: 32, gap: 8 },
+  estadoCentradoEmoji: { fontSize: 48, marginBottom: 8 },
+  estadoCentradoTitulo: { fontSize: 17, fontWeight: '800', color: '#1E0A3C', textAlign: 'center' },
+  estadoCentradoTexto: { fontSize: 13, color: '#6B7280', textAlign: 'center' },
+  retryBtn: { marginTop: 16, backgroundColor: '#F97316', borderRadius: 14, paddingHorizontal: 24, paddingVertical: 12 },
+  retryBtnText: { color: '#FFF', fontWeight: '700', fontSize: 14 },
   hero: { paddingTop: 60, paddingBottom: 30, paddingHorizontal: 24 },
   heroContent: { alignItems: 'center', marginBottom: 30 },
   logoImage: { width: 110, height: 110, borderRadius: 55, marginBottom: 12, borderWidth: 3, borderColor: 'rgba(255,255,255,0.3)' },
