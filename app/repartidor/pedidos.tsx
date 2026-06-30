@@ -25,6 +25,7 @@ import {
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { notificarCambioEstado } from '../../lib/notifications'
+import StarRating from '../../components/StarRating'
 import { supabase } from '../../lib/supabase'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 
@@ -88,6 +89,7 @@ export default function PedidosScreen() {
   const [refreshing,   setRefreshing]   = useState(false)
   const [updatingId,   setUpdatingId]   = useState<string | null>(null)
   const [userId,       setUserId]       = useState<string | null>(null)
+  const [miPromedio,   setMiPromedio]   = useState<{ promedio: number; total_ratings: number } | null>(null)
   const channelRef = useRef<RealtimeChannel | null>(null)
 
   // ── Cargar pedidos ────────────────────────────────────────
@@ -117,6 +119,15 @@ export default function PedidosScreen() {
 
       setUserId(user.id)
       await fetchPedidos(user.id)
+
+      // Cargar promedio propio del repartidor
+      const { data: prom } = await supabase
+        .from('v_promedios_repartidores')
+        .select('promedio, total_ratings')
+        .eq('repartidor_id', user.id)
+        .maybeSingle()
+      if (prom) setMiPromedio({ promedio: Number(prom.promedio), total_ratings: Number(prom.total_ratings) })
+
       setLoading(false)
 
       // Realtime
@@ -266,6 +277,24 @@ export default function PedidosScreen() {
   // ── Render principal ──────────────────────────────────────
   const ListHeader = () => (
     <View>
+      {/* ── Mi calificación promedio ─────────────────── */}
+      <View style={styles.ratingCard}>
+        <View style={styles.ratingCardLeft}>
+          <Text style={styles.ratingCardTitle}>Mi calificación</Text>
+          {miPromedio ? (
+            <>
+              <StarRating value={miPromedio.promedio} size={18} readonly />
+              <Text style={styles.ratingCardNum}>
+                {miPromedio.promedio.toFixed(1)} · {miPromedio.total_ratings} {miPromedio.total_ratings === 1 ? 'reseña' : 'reseñas'}
+              </Text>
+            </>
+          ) : (
+            <Text style={styles.ratingCardNuevo}>Aún sin calificaciones</Text>
+          )}
+        </View>
+        <Text style={styles.ratingCardEmoji}>⭐</Text>
+      </View>
+
       {/* Banner pedido en camino */}
       {enCamino && (
         <TouchableOpacity
@@ -343,6 +372,20 @@ const styles = StyleSheet.create({
     backgroundColor: C.bg, gap: 12,
   },
   loadingText: { color: C.textLight, fontSize: 14 },
+
+  // Card calificación propia
+  ratingCard: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: C.surface, borderRadius: 14,
+    padding: 14, marginBottom: 12, gap: 10,
+    shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 6, shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  ratingCardLeft:  { gap: 4 },
+  ratingCardTitle: { fontSize: 12, fontWeight: '600', color: C.textLight, textTransform: 'uppercase', letterSpacing: 0.5 },
+  ratingCardNum:   { fontSize: 13, color: C.text, fontWeight: '600', marginTop: 4 },
+  ratingCardNuevo: { fontSize: 13, color: C.textLight, marginTop: 4 },
+  ratingCardEmoji: { fontSize: 32 },
 
   // Banner pedido en camino
   banner: {

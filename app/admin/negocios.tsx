@@ -28,7 +28,8 @@ import {
   Platform,
   Alert,
 } from 'react-native'
-import { supabase } from '../../lib/supabase' // ← ajusta si difiere
+import StarRating from '../../components/StarRating'
+import { supabase } from '../../lib/supabase'
 
 // ─── Colores (ajusta a tu tema) ───────────────────────────────
 const C = {
@@ -44,11 +45,13 @@ const C = {
 
 // ─── Tipo Negocio ──────────────────────────────────────────────
 type Negocio = {
-  id:         string
-  nombre:     string
-  categoria?: string
-  activo:     boolean
-  created_at: string
+  id:          string
+  nombre:      string
+  categoria?:  string
+  activo:      boolean
+  created_at:  string
+  promedio?:   number | null      // promedio de calificación (de v_promedios_negocios)
+  total_ratings?: number
 }
 
 // ─── Componente NegocioRow ────────────────────────────────────
@@ -72,6 +75,17 @@ function NegocioRow({
           {negocio.categoria ? (
             <Text style={rowStyles.categoria}>{negocio.categoria}</Text>
           ) : null}
+          {/* Rating promedio */}
+          {negocio.promedio != null ? (
+            <View style={rowStyles.ratingRow}>
+              <StarRating value={negocio.promedio} size={11} readonly />
+              <Text style={rowStyles.ratingText}>
+                {Number(negocio.promedio).toFixed(1)} ({negocio.total_ratings ?? 0})
+              </Text>
+            </View>
+          ) : (
+            <Text style={rowStyles.ratingNuevo}>Sin calificaciones</Text>
+          )}
           <Text style={[rowStyles.estadoLabel, { color: negocio.activo ? C.success : C.textLight }]}>
             {negocio.activo ? '● Activo' : '○ Inactivo'}
           </Text>
@@ -136,6 +150,9 @@ const rowStyles = StyleSheet.create({
     fontWeight: '600',
     marginTop:  2,
   },
+  ratingRow:   { flexDirection: 'row', alignItems: 'center', marginTop: 3 },
+  ratingText:  { fontSize: 11, color: C.textLight, marginLeft: 4 },
+  ratingNuevo: { fontSize: 11, color: C.textLight, marginTop: 3 },
 })
 
 // ─── Pantalla principal ───────────────────────────────────────
@@ -146,15 +163,33 @@ export default function NegociosAdminScreen() {
   const [busqueda,   setBusqueda]   = useState('')
   const [toggling,   setToggling]   = useState<string | null>(null) // id del negocio en toggle
 
-  // ── Cargar negocios ─────────────────────────────────────────
+  // ── Cargar negocios + promedios ─────────────────────────────
   const fetchNegocios = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
-    const { data, error } = await supabase
-      .from('negocios')
-      .select('id, nombre, categoria, activo, created_at')
-      .order('nombre', { ascending: true })
+    const [{ data, error }, { data: promsData }] = await Promise.all([
+      supabase
+        .from('negocios')
+        .select('id, nombre, categoria, activo, created_at')
+        .order('nombre', { ascending: true }),
+      supabase
+        .from('v_promedios_negocios')
+        .select('negocio_id, promedio, total_ratings'),
+    ])
 
-    if (!error && data) setNegocios(data as Negocio[])
+    if (!error && data) {
+      // Construir mapa de promedios para merge O(1)
+      const pMap: Record<string, { promedio: number; total_ratings: number }> = {}
+      for (const p of (promsData ?? [])) {
+        pMap[p.negocio_id] = { promedio: Number(p.promedio), total_ratings: Number(p.total_ratings) }
+      }
+      setNegocios(
+        (data as Negocio[]).map(n => ({
+          ...n,
+          promedio:      pMap[n.id]?.promedio      ?? null,
+          total_ratings: pMap[n.id]?.total_ratings ?? 0,
+        }))
+      )
+    }
     setLoading(false)
     setRefreshing(false)
   }, [])

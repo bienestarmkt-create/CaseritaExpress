@@ -1,8 +1,9 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Animated, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import MapaRepartidor from '../components/MapaRepartidor';
+import StarRating from '../components/StarRating';
 import { supabase } from '../lib/supabase';
 
 // ─── ESTADO → ÍNDICE ─────────────────────────────────────
@@ -61,8 +62,14 @@ export default function SeguimientoScreen() {
   const [mensajes, setMensajes] = useState(MENSAJES_INICIALES);
   const [pedidoEntregado, setPedidoEntregado] = useState(false);
   const [modalCalificar, setModalCalificar] = useState(false);
-  const [estrellas, setEstrellas] = useState(0);
-  const [calificado, setCalificado] = useState(false);
+  // ── Estado de calificación (nuevo sistema completo) ──────────
+  const [estrellasNegocio,       setEstrellasNegocio]       = useState(0);
+  const [estrellasRepartidor,    setEstrellasRepartidor]     = useState(0);
+  const [comentarioNegocio,      setComentarioNegocio]       = useState('');
+  const [comentarioRepartidor,   setComentarioRepartidor]    = useState('');
+  const [guardandoRating,        setGuardandoRating]         = useState(false);
+  const [calificado,             setCalificado]              = useState(false);
+  const [yaOfrecioModal,         setYaOfrecioModal]          = useState(false); // evita mostrar modal 2 veces en misma sesión
   const [notifChat, setNotifChat] = useState(0);
   const [pedidoReal, setPedidoReal] = useState<any>(null);
   const [repartidorReal, setRepartidorReal] = useState<any>(null);
@@ -140,6 +147,31 @@ export default function SeguimientoScreen() {
       if (data.estado === 'entregado') {
         setPedidoEntregado(true);
         setTiempoRestante(0);
+
+        // ── Verificar si ya calificó este pedido ──────────────
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data: yaRating } = await supabase
+            .from('ratings')
+            .select('id')
+            .eq('pedido_id', data.id)
+            .eq('cliente_id', user.id)
+            .maybeSingle();
+
+          if (yaRating) {
+            // Ya calificó — mostrar badge de "gracias"
+            setCalificado(true);
+          } else {
+            // No calificó — ofrecer modal UNA sola vez en esta sesión
+            setYaOfrecioModal(prev => {
+              if (!prev) {
+                setTimeout(() => setModalCalificar(true), 800);
+                return true;
+              }
+              return prev;
+            });
+          }
+        }
       }
       if (data.repartidor_nombre) {
         setRepartidorReal({ ...REPARTIDOR_DEFAULT, nombre: data.repartidor_nombre });
@@ -214,7 +246,23 @@ export default function SeguimientoScreen() {
     }, 1500);
   };
 
-  const confirmarCalificacion = () => {
+  const confirmarCalificacion = async () => {
+    if (estrellasNegocio === 0) return; // negocio es obligatorio
+    setGuardandoRating(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user && pedidoReal?.id) {
+        await supabase.from('ratings').insert({
+          pedido_id:               pedidoReal.id,
+          cliente_id:              user.id,
+          calificacion_negocio:    estrellasNegocio,
+          calificacion_repartidor: estrellasRepartidor > 0 ? estrellasRepartidor : null,
+          comentario_negocio:      comentarioNegocio.trim()    || null,
+          comentario_repartidor:   comentarioRepartidor.trim() || null,
+        });
+      }
+    } catch { /* falla silenciosamente */ }
+    setGuardandoRating(false);
     setModalCalificar(false);
     setCalificado(true);
   };
@@ -506,32 +554,75 @@ export default function SeguimientoScreen() {
       {/* ══ MODAL: CALIFICAR ════════════════════════════ */}
       {modalCalificar && (
         <View style={s.modalOverlay}>
-          <View style={s.modalBox}>
-            <Text style={s.modalEmoji}>🎉</Text>
-            <Text style={s.modalTitulo}>¡Pedido entregado!</Text>
-            <Text style={s.modalSub}>¿Cómo estuvo tu experiencia con {REPARTIDOR.nombre}?</Text>
-            <View style={s.estrellasRow}>
-              {[1,2,3,4,5].map(n => (
-                <TouchableOpacity key={n} onPress={() => setEstrellas(n)}>
-                  <Text style={[s.estrella, n <= estrellas && s.estrellaOn]}>★</Text>
-                </TouchableOpacity>
-              ))}
+          <ScrollView
+            contentContainerStyle={s.modalScroll}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
+            <View style={s.modalBox}>
+              <Text style={s.modalEmoji}>🎉</Text>
+              <Text style={s.modalTitulo}>¡Pedido entregado!</Text>
+              <Text style={s.modalSub}>Tu opinión ayuda a mejorar CaseritaExpress</Text>
+
+              {/* ── Calificación del negocio ── */}
+              <View style={s.ratingSection}>
+                <Text style={s.ratingSectionTitle}>🍽️ {PEDIDO.restaurante}</Text>
+                <Text style={s.ratingSectionSub}>¿Cómo estuvo la comida?</Text>
+                <StarRating value={estrellasNegocio} onChange={setEstrellasNegocio} size={40} />
+                {estrellasNegocio > 0 && (
+                  <Text style={s.ratingFeedback}>
+                    {estrellasNegocio === 5 ? '¡Excelente! 🔥' : estrellasNegocio >= 4 ? 'Muy buena 👍' : estrellasNegocio >= 3 ? 'Regular 😐' : 'Puede mejorar 😕'}
+                  </Text>
+                )}
+                <TextInput
+                  style={s.comentarioInput}
+                  placeholder="Comentario opcional sobre el restaurante..."
+                  placeholderTextColor="#9CA3AF"
+                  value={comentarioNegocio}
+                  onChangeText={setComentarioNegocio}
+                  multiline
+                  numberOfLines={2}
+                  maxLength={200}
+                />
+              </View>
+
+              {/* ── Calificación del repartidor ── */}
+              <View style={s.ratingSection}>
+                <Text style={s.ratingSectionTitle}>🛵 {REPARTIDOR.nombre}</Text>
+                <Text style={s.ratingSectionSub}>¿Cómo fue la entrega? (opcional)</Text>
+                <StarRating value={estrellasRepartidor} onChange={setEstrellasRepartidor} size={40} />
+                {estrellasRepartidor > 0 && (
+                  <Text style={s.ratingFeedback}>
+                    {estrellasRepartidor === 5 ? '¡Entrega perfecta! 🚀' : estrellasRepartidor >= 4 ? 'Muy buena 👍' : estrellasRepartidor >= 3 ? 'Regular 😐' : 'Tardó mucho 😕'}
+                  </Text>
+                )}
+                <TextInput
+                  style={s.comentarioInput}
+                  placeholder="Comentario opcional sobre el repartidor..."
+                  placeholderTextColor="#9CA3AF"
+                  value={comentarioRepartidor}
+                  onChangeText={setComentarioRepartidor}
+                  multiline
+                  numberOfLines={2}
+                  maxLength={200}
+                />
+              </View>
+
+              <TouchableOpacity
+                style={[s.modalBtnOk, (estrellasNegocio === 0 || guardandoRating) && s.modalBtnDisabled]}
+                onPress={confirmarCalificacion}
+                disabled={estrellasNegocio === 0 || guardandoRating}
+                activeOpacity={0.85}
+              >
+                <Text style={s.modalBtnOkText}>
+                  {guardandoRating ? 'Enviando...' : '✅ Enviar calificación'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setModalCalificar(false)} style={s.modalBtnSkip}>
+                <Text style={s.modalBtnSkipText}>Ahora no</Text>
+              </TouchableOpacity>
             </View>
-            {estrellas > 0 && (
-              <Text style={s.estrellaFeedback}>
-                {estrellas === 5 ? '¡Excelente servicio! 🚀' : estrellas >= 4 ? 'Muy bueno 👍' : estrellas >= 3 ? 'Regular 😐' : 'Puede mejorar 😕'}
-              </Text>
-            )}
-            <TouchableOpacity
-              style={[s.modalBtnOk, estrellas === 0 && s.modalBtnDisabled]}
-              onPress={confirmarCalificacion}
-              disabled={estrellas === 0}>
-              <Text style={s.modalBtnOkText}>✅ Enviar calificación</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setModalCalificar(false)} style={s.modalBtnSkip}>
-              <Text style={s.modalBtnSkipText}>Ahora no</Text>
-            </TouchableOpacity>
-          </View>
+          </ScrollView>
         </View>
       )}
     </View>
@@ -674,4 +765,11 @@ const s = StyleSheet.create({
   modalBtnOkText:       { color: '#FFF', fontWeight: '800', fontSize: 16 },
   modalBtnSkip:         { padding: 10 },
   modalBtnSkipText:     { color: '#9CA3AF', fontSize: 14 },
+  // ── Modal nuevo: scroll + secciones ─────────────────────
+  modalScroll:          { flexGrow: 1, justifyContent: 'center', padding: 16 },
+  ratingSection:        { width: '100%', marginBottom: 20, alignItems: 'center' },
+  ratingSectionTitle:   { fontSize: 16, fontWeight: '800', color: '#1E0A3C', marginBottom: 2 },
+  ratingSectionSub:     { fontSize: 13, color: '#6B7280', marginBottom: 10 },
+  ratingFeedback:       { fontSize: 14, fontWeight: '700', color: '#374151', marginTop: 6, marginBottom: 4 },
+  comentarioInput:      { width: '100%', backgroundColor: '#F9FAFB', borderRadius: 12, borderWidth: 1, borderColor: '#E5E7EB', padding: 12, fontSize: 13, color: '#1E0A3C', marginTop: 8, textAlignVertical: 'top', minHeight: 56 },
 });

@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useCarrito } from '../context/CarritoContext';
+import StarRating from '../components/StarRating';
 import { supabase } from '../lib/supabase';
 
 const CATEGORIAS = [
@@ -25,6 +26,7 @@ export default function DeliveryScreen() {
   const [restauranteActivo, setRestauranteActivo] = useState<string | null>(null);
   const [restaurantes, setRestaurantes] = useState<any[]>([]);
   const [productos, setProductos] = useState<any[]>([]);
+  const [promedios, setPromedios] = useState<Record<string, { promedio: number; total_ratings: number }>>({});
   const [cargando, setCargando] = useState(true);
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
 
@@ -40,11 +42,16 @@ export default function DeliveryScreen() {
       setTimeout(() => reject(new Error('Tiempo de espera agotado. Verifica tu conexión.')), TIMEOUT_MS)
     );
     try {
-      const [{ data: negocios, error: errNegocios }, { data: prods, error: errProds }] =
+      const [
+        { data: negocios, error: errNegocios },
+        { data: prods,    error: errProds },
+        { data: promsData },
+      ] =
         await Promise.race([
           Promise.all([
             supabase.from('negocios').select('*').eq('activo', true),
             supabase.from('productos').select('*').eq('disponible', true),
+            supabase.from('v_promedios_negocios').select('negocio_id, promedio, total_ratings'),
           ]),
           timeout,
         ]);
@@ -52,6 +59,12 @@ export default function DeliveryScreen() {
       if (errProds) throw new Error(errProds.message);
       setRestaurantes(negocios ?? []);
       setProductos(prods ?? []);
+      // Construir mapa negocio_id → { promedio, total_ratings }
+      const pMap: Record<string, { promedio: number; total_ratings: number }> = {};
+      for (const p of (promsData ?? [])) {
+        pMap[p.negocio_id] = { promedio: Number(p.promedio), total_ratings: Number(p.total_ratings) };
+      }
+      setPromedios(pMap);
     } catch (e: any) {
       setErrorCarga(e?.message ?? 'Error al conectar con el servidor');
     } finally {
@@ -174,7 +187,16 @@ export default function DeliveryScreen() {
                   <Text style={styles.restNombre}>{rest.nombre}</Text>
                   <Text style={styles.restTipo}>{rest.categoria} • {rest.direccion}</Text>
                   <View style={styles.restMeta}>
-                    <Text style={styles.restRating}>⭐ {rest.rating || '4.5'}</Text>
+                    {promedios[rest.id] ? (
+                      <View style={styles.ratingRow}>
+                        <StarRating value={promedios[rest.id].promedio} size={12} readonly />
+                        <Text style={styles.restRating}>
+                          {promedios[rest.id].promedio.toFixed(1)} ({promedios[rest.id].total_ratings})
+                        </Text>
+                      </View>
+                    ) : (
+                      <Text style={styles.restNuevo}>✨ Nuevo</Text>
+                    )}
                     <Text style={styles.restPrecio}>Bs. 8 envío</Text>
                     {rest.ciudad && <Text style={styles.restCiudad}>📍 {rest.ciudad}</Text>}
                   </View>
@@ -285,9 +307,11 @@ const styles = StyleSheet.create({
   restNombre: { fontSize: 16, fontWeight: '700', color: '#1E0A3C', marginBottom: 4 },
   restTipo: { fontSize: 13, color: '#9CA3AF', marginBottom: 6 },
   restMeta: { flexDirection: 'row', gap: 12, flexWrap: 'wrap' },
-  restPrecio: { fontSize: 12, color: '#F97316', fontWeight: '600' },
-  restRating: { fontSize: 12, color: '#6B7280' },
-  restCiudad: { fontSize: 12, color: '#9CA3AF' },
+  restPrecio:  { fontSize: 12, color: '#F97316', fontWeight: '600' },
+  restRating:  { fontSize: 12, color: '#6B7280', marginLeft: 4 },
+  restCiudad:  { fontSize: 12, color: '#9CA3AF' },
+  ratingRow:   { flexDirection: 'row', alignItems: 'center' },
+  restNuevo:   { fontSize: 12, color: '#10B981', fontWeight: '600' },
   restArrow: { fontSize: 12, color: '#9CA3AF', marginLeft: 8 },
   platosBox: { borderTopWidth: 1, borderTopColor: '#F3F4F6', padding: 16 },
   platosTitle: { fontSize: 15, fontWeight: '700', color: '#1E0A3C', marginBottom: 12 },
