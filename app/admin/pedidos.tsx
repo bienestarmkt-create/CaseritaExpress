@@ -31,7 +31,8 @@ import {
   Platform,
 } from 'react-native'
 import { RealtimeChannel } from '@supabase/supabase-js'
-import { supabase } from '../../lib/supabase' // ← ajusta si difiere
+import { notificarCambioEstado } from '../../lib/notifications'
+import { supabase } from '../../lib/supabase'
 
 // ─── Colores (ajusta a tu tema) ───────────────────────────────
 const C = {
@@ -309,6 +310,8 @@ export default function PedidosAdminScreen() {
           p.id === pedidoActivo.id ? { ...p, estado: nuevoEstado } : p
         )
       )
+      // Notificar al cliente — falla silenciosamente si hay error
+      notificarCambioEstado(pedidoActivo.id, nuevoEstado).catch(() => {})
     }
     setSaving(false)
     setModalVisible(false)

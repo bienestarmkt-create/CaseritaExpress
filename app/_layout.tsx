@@ -4,6 +4,7 @@ import { Tabs, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
 import { useCarrito } from '../context/CarritoContext';
+import { registerPushToken } from '../lib/notifications';
 import { supabase } from '../lib/supabase';
 import { registerServiceWorker, setupPedidosRealtime, subscribeToPush } from '../lib/usePush';
 
@@ -87,6 +88,8 @@ export default function RootLayout() {
       if (!session) { setRol(null); return; }
       const r = await getRol(session.access_token);
       setRol(r);
+      // Registrar push token (falla silenciosamente si no hay permisos o expo-notifications no instalado)
+      registerPushToken().catch(() => {});
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
@@ -98,6 +101,8 @@ export default function RootLayout() {
       if (event === 'SIGNED_IN' && session) {
         const r = await getRol(session.access_token);
         setRol(r);
+        // Registrar push token al iniciar sesión (falla silenciosamente)
+        registerPushToken().catch(() => {});
       }
     });
 

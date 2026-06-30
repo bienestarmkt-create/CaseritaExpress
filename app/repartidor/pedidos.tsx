@@ -24,6 +24,7 @@ import {
   View,
 } from 'react-native'
 import { useRouter } from 'expo-router'
+import { notificarCambioEstado } from '../../lib/notifications'
 import { supabase } from '../../lib/supabase'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 
@@ -169,12 +170,15 @@ export default function PedidosScreen() {
       .eq('id', pedido.id)
 
     if (error) {
-      // Revert
+      // Revert optimistic update
       setPedidos(prev =>
         nextEstado === 'entregado'
           ? [pedido, ...prev]
           : prev.map(p => p.id === pedido.id ? { ...p, estado: pedido.estado } : p)
       )
+    } else {
+      // Notificar al cliente — falla silenciosamente si hay error
+      notificarCambioEstado(pedido.id, nextEstado).catch(() => {})
     }
 
     setUpdatingId(null)
