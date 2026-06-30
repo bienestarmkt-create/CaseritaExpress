@@ -158,6 +158,7 @@ export default function RootLayout() {
         {/* Pantallas sin tab */}
         <Tabs.Screen name="login"       options={{ href: null }} />
         <Tabs.Screen name="anfitrion"   options={{ href: null }} />
+        <Tabs.Screen name="negocio"     options={{ href: null }} />
         <Tabs.Screen name="seguimiento" options={{ href: null }} />
         <Tabs.Screen name="pago"        options={{ href: null }} />
         <Tabs.Screen name="pago-qr"     options={{ href: null }} />

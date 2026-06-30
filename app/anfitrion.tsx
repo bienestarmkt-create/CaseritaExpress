@@ -1,22 +1,74 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { supabase } from '../lib/supabase';
 
 export default function AnfitrionScreen() {
   const router = useRouter();
   const [paso, setPaso] = useState(1);
+  const [guardando, setGuardando] = useState(false);
   const [form, setForm] = useState({
     nombre: '', whatsapp: '', ciudad: '', tipo: '', capacidad: '', precio: '', descripcion: '',
   });
 
   const actualizar = (campo: string, valor: string) => setForm({ ...form, [campo]: valor });
 
+  // ── Validación por paso ───────────────────────────────────────
+  const validarPaso = (): boolean => {
+    if (paso === 1) {
+      if (!form.nombre.trim()) { Alert.alert('Campo requerido', 'Ingresa tu nombre completo.'); return false; }
+      if (!form.ciudad)        { Alert.alert('Campo requerido', 'Selecciona tu ciudad.'); return false; }
+    }
+    if (paso === 2) {
+      if (!form.tipo) { Alert.alert('Campo requerido', 'Selecciona el tipo de negocio.'); return false; }
+    }
+    return true;
+  };
+
+  // ── Guardar en Supabase y redirigir ───────────────────────────
+  const registrarAnfitrion = async () => {
+    setGuardando(true);
+    try {
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) throw new Error('Debes iniciar sesión primero.');
+
+      // 1. Actualizar rol a 'anfitrion' en profiles
+      const { error: rolError } = await supabase
+        .from('profiles')
+        .update({ rol: 'anfitrion' })
+        .eq('id', user.id);
+      if (rolError) throw rolError;
+
+      // 2. Insertar negocio (RLS ya permite porque rol='anfitrion')
+      const { error: negocioError } = await supabase
+        .from('negocios')
+        .insert({
+          nombre:     form.nombre.trim(),
+          categoria:  form.tipo   || 'Otro',
+          ciudad:     form.ciudad || 'Tarija',
+          usuario_id: user.id,
+          activo:     false,       // El admin activa el negocio tras revisión
+        });
+      if (negocioError) throw negocioError;
+
+      // 3. Redirigir al panel de anfitrión
+      Alert.alert(
+        '¡Registro exitoso! 🎉',
+        'Tu negocio fue registrado. Será revisado en 24 horas.\nMientras tanto, ya puedes configurar tu menú y fotos.',
+        [{ text: 'Ir a mi panel', onPress: () => router.replace('/negocio/pedidos' as any) }]
+      );
+    } catch (e: any) {
+      Alert.alert('Error al registrar', e?.message ?? 'No se pudo completar el registro. Intenta de nuevo.');
+    } finally {
+      setGuardando(false);
+    }
+  };
+
   const siguiente = () => {
-    if (paso < 3) setPaso(paso + 1);
-    else Alert.alert('¡Registro exitoso! 🎉', 'Tu alojamiento será revisado en 24 horas. Te contactaremos por WhatsApp.', [
-      { text: 'Perfecto', onPress: () => router.push('/') }
-    ]);
+    if (!validarPaso()) return;
+    if (paso < 3) { setPaso(paso + 1); return; }
+    registrarAnfitrion();
   };
 
   return (
@@ -99,9 +151,12 @@ export default function AnfitrionScreen() {
           </View>
         )}
 
-        <TouchableOpacity style={styles.nextBtn} onPress={siguiente}>
+        <TouchableOpacity style={styles.nextBtn} onPress={siguiente} disabled={guardando} activeOpacity={0.85}>
           <LinearGradient colors={['#F97316', '#EA580C']} style={styles.nextGradient}>
-            <Text style={styles.nextText}>{paso < 3 ? 'Continuar →' : '✅ Registrarme como Anfitrión'}</Text>
+            {guardando
+              ? <ActivityIndicator color="#FFF" />
+              : <Text style={styles.nextText}>{paso < 3 ? 'Continuar →' : '✅ Registrarme como Anfitrión'}</Text>
+            }
           </LinearGradient>
         </TouchableOpacity>
         <View style={{ height: 40 }} />
