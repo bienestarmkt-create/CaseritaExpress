@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, Dimensions, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { supabase } from '../lib/supabase';
+import { BrandColors } from '../constants/theme';
 
 const { width } = Dimensions.get('window');
 
@@ -134,7 +135,7 @@ export default function HomeScreen() {
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      <LinearGradient colors={['#6B21A8', '#4C1D95', '#1E0A3C']} style={styles.hero}>
+      <LinearGradient colors={BrandColors.gradient} style={styles.hero}>
         <Animated.View style={[styles.heroContent, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
           {/* ===== LOGO DE CASERITAEXPRESS ===== */}
           <Image
@@ -220,7 +221,7 @@ export default function HomeScreen() {
       </View>
 
       <TouchableOpacity style={styles.hostCTA} onPress={() => router.push('/anfitrion')}>
-        <LinearGradient colors={['#6B21A8', '#4C1D95']} style={styles.hostGradient}>
+        <LinearGradient colors={BrandColors.gradient} style={styles.hostGradient}>
           <Text style={styles.hostTitle}>¿Tienes un negocio o espacio?</Text>
           <Text style={styles.hostDesc}>Únete como aliado y genera ingresos extra →</Text>
         </LinearGradient>
@@ -243,11 +244,11 @@ const styles = StyleSheet.create({
   heroContent: { alignItems: 'center', marginBottom: 30 },
   logoImage: { width: 110, height: 110, borderRadius: 55, marginBottom: 12, borderWidth: 3, borderColor: 'rgba(255,255,255,0.3)' },
   brandName: { fontSize: 32, fontWeight: '800', color: '#FFF', textAlign: 'center' },
-  tagline: { fontSize: 14, color: '#DDD6FE', marginTop: 8, textAlign: 'center' },
+  tagline: { fontSize: 14, color: BrandColors.onPrimaryMuted, marginTop: 8, textAlign: 'center' },
   statsRow: { flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 16, padding: 16, marginTop: 24, alignItems: 'center' },
   stat: { alignItems: 'center', flex: 1 },
   statNum: { fontSize: 18, fontWeight: '800', color: '#FFF' },
-  statLabel: { fontSize: 11, color: '#C4B5FD', marginTop: 2 },
+  statLabel: { fontSize: 11, color: BrandColors.onPrimaryMuted, marginTop: 2 },
   statDivider: { width: 1, backgroundColor: 'rgba(255,255,255,0.2)' },
   section: { padding: 24 },
   sectionTitle: { fontSize: 20, fontWeight: '800', color: '#1E0A3C', marginBottom: 16 },
@@ -262,11 +263,11 @@ const styles = StyleSheet.create({
   cardDesc: { fontSize: 13, color: '#FED7AA', marginTop: 4 },
   cardDescDark: { fontSize: 13, color: '#6B7280', marginTop: 4 },
   cardArrow: { fontSize: 20, color: '#FFF' },
-  cardArrowDark: { fontSize: 20, color: '#6B21A8' },
+  cardArrowDark: { fontSize: 20, color: BrandColors.primary },
   hostCTA: { marginHorizontal: 24, borderRadius: 24, overflow: 'hidden' },
   hostGradient: { padding: 24 },
   hostTitle: { fontSize: 18, fontWeight: '800', color: '#FFF' },
-  hostDesc: { fontSize: 14, color: '#DDD6FE', marginTop: 8 },
+  hostDesc: { fontSize: 14, color: BrandColors.onPrimaryMuted, marginTop: 8 },
   loginBtn: { marginHorizontal: 20, marginTop: 16, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 16, padding: 14, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)' },
   loginBtnText: { color: '#FFF', fontSize: 15, fontWeight: '700' },
   profileBtn: { marginHorizontal: 20, marginTop: 16, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 20, paddingVertical: 10, paddingHorizontal: 14, borderWidth: 1.5, borderColor: '#F97316', gap: 12 },

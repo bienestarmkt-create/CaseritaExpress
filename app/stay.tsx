@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useCarrito } from '../context/CarritoContext';
 import { supabase } from '../lib/supabase';
+import { BrandColors } from '../constants/theme';
 
 const MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 const hoy = new Date();
@@ -80,7 +81,7 @@ export default function StayScreen() {
 
   return (
     <View style={styles.container}>
-      <LinearGradient colors={['#6B21A8', '#4C1D95']} style={styles.header}>
+      <LinearGradient colors={BrandColors.gradient} style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Text style={styles.backText}>← Inicio</Text>
         </TouchableOpacity>
@@ -116,14 +117,14 @@ export default function StayScreen() {
       <ScrollView style={styles.lista} showsVerticalScrollIndicator={false}>
         {cargando ? (
           <View style={styles.loadingBox}>
-            <ActivityIndicator size="large" color="#6B21A8" />
+            <ActivityIndicator size="large" color={BrandColors.primary} />
             <Text style={styles.loadingText}>Cargando alojamientos...</Text>
           </View>
         ) : errorCarga ? (
           <View style={styles.loadingBox}>
             <Text style={{ fontSize: 40, marginBottom: 8 }}>⚠️</Text>
             <Text style={[styles.loadingText, { color: '#EF4444' }]}>{errorCarga}</Text>
-            <TouchableOpacity onPress={cargarAlojamientos} style={{ marginTop: 16, backgroundColor: '#6B21A8', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 12 }}>
+            <TouchableOpacity onPress={cargarAlojamientos} style={{ marginTop: 16, backgroundColor: BrandColors.primary, paddingHorizontal: 24, paddingVertical: 10, borderRadius: 12 }}>
               <Text style={{ color: '#FFF', fontWeight: '700' }}>Reintentar</Text>
             </TouchableOpacity>
           </View>
@@ -239,7 +240,7 @@ export default function StayScreen() {
       {totalItems > 0 && (
         <View style={styles.footerCarrito}>
           <TouchableOpacity onPress={() => router.push('/carrito')} style={styles.footerBtn}>
-            <LinearGradient colors={['#6B21A8', '#4C1D95']} style={styles.footerGradient}>
+            <LinearGradient colors={BrandColors.gradient} style={styles.footerGradient}>
               <Text style={styles.footerText}>🛒 Ver carrito ({totalItems} items)</Text>
             </LinearGradient>
           </TouchableOpacity>
@@ -253,17 +254,17 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8F7FF' },
   header: { paddingTop: 55, paddingBottom: 20, paddingHorizontal: 20 },
   backBtn: { marginBottom: 12 },
-  backText: { color: '#DDD6FE', fontSize: 14 },
+  backText: { color: BrandColors.onPrimaryMuted, fontSize: 14 },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   headerTitle: { fontSize: 26, fontWeight: '800', color: '#FFF' },
-  headerSub: { fontSize: 13, color: '#C4B5FD', marginTop: 4 },
+  headerSub: { fontSize: 13, color: BrandColors.onPrimaryMuted, marginTop: 4 },
   carritoBtn: { position: 'relative', padding: 8 },
   carritoEmoji: { fontSize: 28 },
   carritoBadge: { position: 'absolute', top: 0, right: 0, backgroundColor: '#FFF', borderRadius: 10, width: 20, height: 20, alignItems: 'center', justifyContent: 'center' },
-  carritoBadgeText: { fontSize: 11, fontWeight: '800', color: '#6B21A8' },
+  carritoBadgeText: { fontSize: 11, fontWeight: '800', color: BrandColors.primary },
   filtrosBar: { paddingVertical: 10, maxHeight: 52, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
   filtroBtn: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#E5E7EB' },
-  filtroBtnActivo: { backgroundColor: '#6B21A8', borderColor: '#6B21A8' },
+  filtroBtnActivo: { backgroundColor: BrandColors.primary, borderColor: BrandColors.primary },
   filtroBtnOferta: { backgroundColor: '#F97316', borderColor: '#F97316' },
   filtroText: { fontSize: 12, color: '#6B7280', fontWeight: '600' },
   filtroTextActivo: { color: '#FFF' },
@@ -277,17 +278,17 @@ const styles = StyleSheet.create({
   cardBody: { padding: 16 },
   cardRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
   cardCiudad: { fontSize: 12, color: '#9CA3AF' },
-  cardRating: { fontSize: 13, color: '#6B21A8', fontWeight: '600' },
+  cardRating: { fontSize: 13, color: BrandColors.primary, fontWeight: '600' },
   cardNombre: { fontSize: 17, fontWeight: '700', color: '#1E0A3C', marginBottom: 4 },
   cardDesc: { fontSize: 12, color: '#9CA3AF', marginBottom: 6 },
   cardDesde: { fontSize: 13, color: '#9CA3AF', marginBottom: 4 },
-  cardPrecio: { fontSize: 16, fontWeight: '800', color: '#6B21A8' },
-  cardTap: { fontSize: 12, color: '#6B21A8', fontWeight: '600' },
+  cardPrecio: { fontSize: 16, fontWeight: '800', color: BrandColors.primary },
+  cardTap: { fontSize: 12, color: BrandColors.primary, fontWeight: '600' },
   detalleBox: { borderTopWidth: 1, borderTopColor: '#F3F4F6', padding: 16 },
   habTitle: { fontSize: 15, fontWeight: '700', color: '#1E0A3C', marginBottom: 12 },
   detalleRow: { flexDirection: 'row', gap: 16, marginBottom: 8 },
   detalleItem: { fontSize: 13, color: '#6B7280', marginBottom: 6 },
-  reservarBtn: { backgroundColor: '#6B21A8', borderRadius: 14, padding: 14, alignItems: 'center', marginTop: 8 },
+  reservarBtn: { backgroundColor: BrandColors.primary, borderRadius: 14, padding: 14, alignItems: 'center', marginTop: 8 },
   reservarText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
   modalOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center', zIndex: 999 },
   modalBox: { backgroundColor: '#FFF', borderRadius: 24, padding: 24, width: '90%', maxHeight: '85%' },
@@ -296,20 +297,20 @@ const styles = StyleSheet.create({
   modalLabel: { fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 8, marginTop: 12 },
   diasRow: { maxHeight: 64 },
   diaBtn: { alignItems: 'center', marginRight: 8, backgroundColor: '#F3F4F6', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8 },
-  diaBtnActivo: { backgroundColor: '#6B21A8' },
+  diaBtnActivo: { backgroundColor: BrandColors.primary },
   diaText: { fontSize: 16, fontWeight: '700', color: '#374151' },
   mesText: { fontSize: 10, color: '#9CA3AF' },
   diaTextActivo: { color: '#FFF' },
   huespedesRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 4 },
-  huespedesBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#6B21A8', alignItems: 'center', justifyContent: 'center' },
+  huespedesBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: BrandColors.primary, alignItems: 'center', justifyContent: 'center' },
   huespedBtnText: { fontSize: 20, color: '#FFF', fontWeight: '700', lineHeight: 24 },
   huespedesNum: { fontSize: 22, fontWeight: '800', color: '#1E0A3C', minWidth: 30, textAlign: 'center' },
   huespedesMax: { fontSize: 12, color: '#9CA3AF' },
-  resumenBox: { backgroundColor: '#F3F0FF', borderRadius: 14, padding: 14, marginTop: 12 },
+  resumenBox: { backgroundColor: BrandColors.tint, borderRadius: 14, padding: 14, marginTop: 12 },
   resumenText: { fontSize: 14, color: '#6B7280', marginBottom: 4 },
-  resumenTotal: { fontSize: 18, fontWeight: '800', color: '#6B21A8' },
-  confirmarBtn: { backgroundColor: '#6B21A8', borderRadius: 14, padding: 16, alignItems: 'center', marginTop: 16 },
-  confirmarBtnDisabled: { backgroundColor: '#C4B5FD' },
+  resumenTotal: { fontSize: 18, fontWeight: '800', color: BrandColors.primary },
+  confirmarBtn: { backgroundColor: BrandColors.primary, borderRadius: 14, padding: 16, alignItems: 'center', marginTop: 16 },
+  confirmarBtnDisabled: { backgroundColor: BrandColors.disabled },
   confirmarText: { color: '#FFF', fontWeight: '800', fontSize: 16 },
   cancelarBtn: { padding: 12, alignItems: 'center' },
   cancelarText: { color: '#9CA3AF', fontSize: 14 },

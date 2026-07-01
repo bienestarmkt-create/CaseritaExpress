@@ -27,6 +27,18 @@ export const Colors = {
   },
 };
 
+// Naranja de marca (referencia: header de /delivery). Usar en headers, gradientes
+// y acentos de marca en toda la app — no reemplaza colores de estado semántico
+// (verde/rojo/amarillo) ni los tags de categoría (Delivery/Stay/Eventos) en carrito y perfil.
+export const BrandColors = {
+  primary: '#F97316',
+  primaryDark: '#EA580C',
+  gradient: ['#F97316', '#EA580C'] as const,
+  onPrimaryMuted: '#FED7AA',
+  tint: '#FFF7ED',
+  disabled: '#FDBA74',
+};
+
 export const Fonts = Platform.select({
   ios: {
     /** iOS `UIFontDescriptorSystemDesignDefault` */

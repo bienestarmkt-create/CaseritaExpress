@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useCarrito } from '../context/CarritoContext';
 import { supabase } from '../lib/supabase';
+import { BrandColors } from '../constants/theme';
 
 const CIUDADES = ['Todas', 'Tarija', 'La Paz', 'Santa Cruz', 'Cochabamba', 'Oruro', 'Potosí', 'Sucre', 'Trinidad', 'Cobija'];
 
@@ -77,7 +78,7 @@ export default function EventosScreen() {
 
   return (
     <View style={styles.container}>
-      <LinearGradient colors={['#7C3AED', '#5B21B6']} style={styles.header}>
+      <LinearGradient colors={BrandColors.gradient} style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Text style={styles.backText}>← Inicio</Text>
         </TouchableOpacity>
@@ -123,14 +124,14 @@ export default function EventosScreen() {
       <ScrollView style={styles.lista} showsVerticalScrollIndicator={false}>
         {cargando ? (
           <View style={styles.loadingBox}>
-            <ActivityIndicator size="large" color="#7C3AED" />
+            <ActivityIndicator size="large" color={BrandColors.primary} />
             <Text style={styles.loadingText}>Cargando eventos...</Text>
           </View>
         ) : errorCarga ? (
           <View style={styles.emptyBox}>
             <Text style={styles.emptyEmoji}>⚠️</Text>
             <Text style={[styles.emptyText, { color: '#EF4444' }]}>{errorCarga}</Text>
-            <TouchableOpacity onPress={cargarEventos} style={{ marginTop: 16, backgroundColor: '#7C3AED', paddingHorizontal: 24, paddingVertical: 10, borderRadius: 12 }}>
+            <TouchableOpacity onPress={cargarEventos} style={{ marginTop: 16, backgroundColor: BrandColors.primary, paddingHorizontal: 24, paddingVertical: 10, borderRadius: 12 }}>
               <Text style={{ color: '#FFF', fontWeight: '700' }}>Reintentar</Text>
             </TouchableOpacity>
           </View>
@@ -199,7 +200,7 @@ export default function EventosScreen() {
       {totalItems > 0 && (
         <View style={styles.footerCarrito}>
           <TouchableOpacity onPress={() => router.push('/carrito')} style={styles.footerBtn}>
-            <LinearGradient colors={['#7C3AED', '#5B21B6']} style={styles.footerGradient}>
+            <LinearGradient colors={BrandColors.gradient} style={styles.footerGradient}>
               <Text style={styles.footerText}>🛒 Ver carrito ({totalItems} items)</Text>
             </LinearGradient>
           </TouchableOpacity>
@@ -213,22 +214,22 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8F7FF' },
   header: { paddingTop: 55, paddingBottom: 20, paddingHorizontal: 20 },
   backBtn: { marginBottom: 12 },
-  backText: { color: '#DDD6FE', fontSize: 14 },
+  backText: { color: BrandColors.onPrimaryMuted, fontSize: 14 },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   headerTitle: { fontSize: 26, fontWeight: '800', color: '#FFF' },
-  headerSub: { fontSize: 13, color: '#DDD6FE', marginTop: 4 },
+  headerSub: { fontSize: 13, color: BrandColors.onPrimaryMuted, marginTop: 4 },
   carritoBtn: { position: 'relative', padding: 8 },
   carritoEmoji: { fontSize: 28 },
   carritoBadge: { position: 'absolute', top: 0, right: 0, backgroundColor: '#FFF', borderRadius: 10, width: 20, height: 20, alignItems: 'center', justifyContent: 'center' },
-  carritoBadgeText: { fontSize: 11, fontWeight: '800', color: '#7C3AED' },
+  carritoBadgeText: { fontSize: 11, fontWeight: '800', color: BrandColors.primary },
   ciudadesBar: { paddingVertical: 10, maxHeight: 52, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
   ciudadBtn: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#E5E7EB' },
-  ciudadBtnActivo: { backgroundColor: '#7C3AED', borderColor: '#7C3AED' },
+  ciudadBtnActivo: { backgroundColor: BrandColors.primary, borderColor: BrandColors.primary },
   ciudadText: { fontSize: 12, color: '#6B7280', fontWeight: '600' },
   ciudadTextActivo: { color: '#FFF' },
   filtrosBar: { paddingVertical: 10, maxHeight: 52, backgroundColor: '#FAFAFA', borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
   filtroBtn: { paddingHorizontal: 16, paddingVertical: 6, borderRadius: 20, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#E5E7EB' },
-  filtroBtnActivo: { backgroundColor: '#7C3AED', borderColor: '#7C3AED' },
+  filtroBtnActivo: { backgroundColor: BrandColors.primary, borderColor: BrandColors.primary },
   filtroText: { fontSize: 13, color: '#6B7280', fontWeight: '600' },
   filtroTextActivo: { color: '#FFF' },
   lista: { flex: 1, paddingHorizontal: 16 },
@@ -239,30 +240,30 @@ const styles = StyleSheet.create({
   emptyText: { color: '#6B7280', fontSize: 15, textAlign: 'center' },
   card: { backgroundColor: '#FFF', borderRadius: 20, marginBottom: 16, elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.1, shadowRadius: 8, overflow: 'hidden' },
   cardImagen: { height: 180, width: '100%' },
-  categoriaBadge: { position: 'absolute', top: 12, right: 12, backgroundColor: '#7C3AED', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
+  categoriaBadge: { position: 'absolute', top: 12, right: 12, backgroundColor: BrandColors.primary, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
   categoriaText: { color: '#FFF', fontSize: 11, fontWeight: '700' },
   cardBody: { padding: 16 },
   cardNombre: { fontSize: 17, fontWeight: '800', color: '#1E0A3C', marginBottom: 6 },
   cardDesc: { fontSize: 13, color: '#9CA3AF', marginBottom: 10 },
   cardMeta: { gap: 4, marginBottom: 12 },
-  cardFecha: { fontSize: 13, color: '#7C3AED', fontWeight: '600' },
+  cardFecha: { fontSize: 13, color: BrandColors.primary, fontWeight: '600' },
   cardLugar: { fontSize: 12, color: '#6B7280' },
   cardCiudad: { fontSize: 12, color: '#6B7280' },
   cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  cardPrecio: { fontSize: 18, fontWeight: '800', color: '#7C3AED' },
+  cardPrecio: { fontSize: 18, fontWeight: '800', color: BrandColors.primary },
   cardPrecioLabel: { fontSize: 12, fontWeight: '400', color: '#9CA3AF' },
-  cardTap: { fontSize: 12, color: '#7C3AED', fontWeight: '600' },
+  cardTap: { fontSize: 12, color: BrandColors.primary, fontWeight: '600' },
   compraBox: { borderTopWidth: 1, borderTopColor: '#F3F4F6', padding: 16 },
   compraTitle: { fontSize: 15, fontWeight: '700', color: '#1E0A3C', marginBottom: 12 },
   ticketsRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
-  ticketBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#7C3AED', alignItems: 'center', justifyContent: 'center' },
+  ticketBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: BrandColors.primary, alignItems: 'center', justifyContent: 'center' },
   ticketBtnText: { fontSize: 20, color: '#FFF', fontWeight: '700', lineHeight: 24 },
   ticketNum: { fontSize: 22, fontWeight: '800', color: '#1E0A3C', minWidth: 30, textAlign: 'center' },
   ticketLabel: { fontSize: 14, color: '#6B7280' },
-  totalBox: { backgroundColor: '#F3F0FF', borderRadius: 12, padding: 12, marginBottom: 12 },
+  totalBox: { backgroundColor: BrandColors.tint, borderRadius: 12, padding: 12, marginBottom: 12 },
   totalText: { fontSize: 14, color: '#6B7280', marginBottom: 4 },
-  totalPrecio: { fontSize: 18, fontWeight: '800', color: '#7C3AED' },
-  comprarBtn: { backgroundColor: '#7C3AED', borderRadius: 14, padding: 14, alignItems: 'center' },
+  totalPrecio: { fontSize: 18, fontWeight: '800', color: BrandColors.primary },
+  comprarBtn: { backgroundColor: BrandColors.primary, borderRadius: 14, padding: 14, alignItems: 'center' },
   comprarText: { color: '#FFF', fontWeight: '800', fontSize: 15 },
   footerCarrito: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 16, backgroundColor: '#F8F7FF' },
   footerBtn: { borderRadius: 16, overflow: 'hidden' },

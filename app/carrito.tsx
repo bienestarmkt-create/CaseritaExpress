@@ -6,6 +6,7 @@ import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, Touc
 import { useCarrito } from '../context/CarritoContext';
 import { supabase } from '../lib/supabase';
 import { sendPushTo } from '../lib/usePush';
+import { BrandColors } from '../constants/theme';
 
 // Formato: CE-PED-XXXXXXXX (primeros 8 chars del UUID en mayúsculas)
 function generarReferencia(pedidoId: string): string {
@@ -258,7 +259,7 @@ export default function CarritoScreen() {
 
   return (
     <View style={styles.container}>
-      <LinearGradient colors={['#1E0A3C', '#4C1D95']} style={styles.header}>
+      <LinearGradient colors={BrandColors.gradient} style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Text style={styles.backText}>← Volver</Text>
         </TouchableOpacity>
@@ -480,7 +481,7 @@ export default function CarritoScreen() {
             setMostrarConfirm(true);
           }}
         >
-            <LinearGradient colors={['#6B21A8', '#4C1D95']} style={styles.pedidoGradient}>
+            <LinearGradient colors={BrandColors.gradient} style={styles.pedidoGradient}>
               <Text style={styles.pedidoText}>
                 {metodoPago === 'qr' ? '📱' : '💵'} Confirmar • Bs. {total}
               </Text>
@@ -496,9 +497,9 @@ const styles = StyleSheet.create({
   container:    { flex: 1, backgroundColor: '#F8F7FF' },
   header:       { paddingTop: 55, paddingBottom: 20, paddingHorizontal: 20 },
   backBtn:      { marginBottom: 12 },
-  backText:     { color: '#DDD6FE', fontSize: 14 },
+  backText:     { color: BrandColors.onPrimaryMuted, fontSize: 14 },
   headerTitle:  { fontSize: 26, fontWeight: '800', color: '#FFF' },
-  headerSub:    { fontSize: 13, color: '#C4B5FD', marginTop: 4, marginBottom: 12 },
+  headerSub:    { fontSize: 13, color: BrandColors.onPrimaryMuted, marginTop: 4, marginBottom: 12 },
   tiposRow:     { flexDirection: 'row', gap: 8 },
   tipoBadge:    { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
   tipoBadgeText:{ color: '#FFF', fontSize: 12, fontWeight: '700' },
@@ -523,7 +524,7 @@ const styles = StyleSheet.create({
   emptyEmoji:   { fontSize: 64, marginBottom: 16 },
   emptyTitle:   { fontSize: 18, fontWeight: '700', color: '#374151', marginBottom: 8 },
   emptySubtitle:{ fontSize: 13, color: '#9CA3AF', marginBottom: 12, textAlign: 'center' },
-  emptyLink:    { fontSize: 15, color: '#6B21A8', fontWeight: '600' },
+  emptyLink:    { fontSize: 15, color: BrandColors.primary, fontWeight: '600' },
   // ── Métodos de pago
   metodosBox:   { marginBottom: 14 },
   metodosTitle: { fontSize: 15, fontWeight: '800', color: '#1E0A3C', marginBottom: 10 },
@@ -566,7 +567,7 @@ const styles = StyleSheet.create({
   resumenValor: { fontSize: 14, color: '#374151', fontWeight: '600' },
   resumenTotal: { borderTopWidth: 1, borderTopColor: '#F3F4F6', paddingTop: 10, marginTop: 4 },
   totalLabel:   { fontSize: 16, fontWeight: '800', color: '#1E0A3C' },
-  totalValor:   { fontSize: 18, fontWeight: '800', color: '#6B21A8' },
+  totalValor:   { fontSize: 18, fontWeight: '800', color: BrandColors.primary },
   footer:       { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 16, backgroundColor: '#F8F7FF' },
   pedidoBtn:    { borderRadius: 16, overflow: 'hidden' },
   pedidoGradient:{ padding: 18, alignItems: 'center' },

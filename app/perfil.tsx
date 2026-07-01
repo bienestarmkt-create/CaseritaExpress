@@ -4,6 +4,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { supabase } from '../lib/supabase';
+import { BrandColors } from '../constants/theme';
 
 const getEstadoColor = (estado: string) => {
   if (estado === 'Entregado' || estado === 'Completado' || estado === 'entregado') return '#10B981';
@@ -182,7 +183,7 @@ export default function PerfilScreen() {
   if (rolEstado === 'cargando') {
     return (
       <View style={styles.estadoCentradoContainer}>
-        <ActivityIndicator size="large" color="#7C3AED" />
+        <ActivityIndicator size="large" color={BrandColors.primary} />
         <Text style={styles.estadoCentradoTexto}>Cargando tu perfil...</Text>
       </View>
     );
@@ -331,7 +332,7 @@ export default function PerfilScreen() {
   // ── VISTA CLIENTE (normal) ────────────────────────────────────────────────────
   return (
     <View style={styles.container}>
-      <LinearGradient colors={['#4C1D95', '#7C3AED']} style={styles.header}>
+      <LinearGradient colors={BrandColors.gradient} style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Text style={styles.backText}>← Inicio</Text>
         </TouchableOpacity>
@@ -537,16 +538,16 @@ const styles = StyleSheet.create({
   container:           { flex: 1, backgroundColor: '#F8F7FF' },
   header:              { paddingTop: 55, paddingBottom: 24, paddingHorizontal: 20 },
   backBtn:             { marginBottom: 16 },
-  backText:            { color: '#DDD6FE', fontSize: 14 },
+  backText:            { color: BrandColors.onPrimaryMuted, fontSize: 14 },
   backTextNaranja:     { color: 'rgba(255,255,255,0.8)', fontSize: 14 },
   perfilHero:          { alignItems: 'center', marginBottom: 20 },
   avatarBox:           { width: 90, height: 90, borderRadius: 45, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center', marginBottom: 10, borderWidth: 3, borderColor: 'rgba(255,255,255,0.4)', overflow: 'hidden' },
   avatarEmoji:         { fontSize: 44 },
   avatarImg:           { width: 90, height: 90, borderRadius: 45 },
   nombreText:          { fontSize: 22, fontWeight: '800', color: '#FFF', marginBottom: 4 },
-  emailText:           { fontSize: 13, color: '#C4B5FD', marginBottom: 2 },
+  emailText:           { fontSize: 13, color: BrandColors.onPrimaryMuted, marginBottom: 2 },
   emailTextoNaranja:   { fontSize: 13, color: 'rgba(255,255,255,0.75)', marginBottom: 10 },
-  telefonoText:        { fontSize: 13, color: '#C4B5FD', marginBottom: 10 },
+  telefonoText:        { fontSize: 13, color: BrandColors.onPrimaryMuted, marginBottom: 10 },
   miembroTag:          { backgroundColor: 'rgba(255,255,255,0.15)', paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, marginTop: 8 },
   miembroText:         { color: '#FFF', fontSize: 12, fontWeight: '600' },
   repartidorBadge:     { backgroundColor: '#F97316', paddingHorizontal: 18, paddingVertical: 6, borderRadius: 20, marginTop: 8 },
@@ -554,7 +555,7 @@ const styles = StyleSheet.create({
   statsRow:            { flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 16, padding: 16, marginTop: 8 },
   statBox:             { flex: 1, alignItems: 'center' },
   statNum:             { fontSize: 22, fontWeight: '800', color: '#FFF' },
-  statLabel:           { fontSize: 11, color: '#C4B5FD', marginTop: 2 },
+  statLabel:           { fontSize: 11, color: BrandColors.onPrimaryMuted, marginTop: 2 },
   statLabelNaranja:    { fontSize: 11, color: 'rgba(255,255,255,0.8)', marginTop: 2 },
   statDivider:         { width: 1, backgroundColor: 'rgba(255,255,255,0.2)' },
   body:                { flex: 1 },
@@ -563,7 +564,7 @@ const styles = StyleSheet.create({
   estadoCentradoEmoji:     { fontSize: 48, marginBottom: 8 },
   estadoCentradoTitulo:    { fontSize: 17, fontWeight: '800', color: '#1E0A3C', textAlign: 'center' },
   estadoCentradoTexto:     { fontSize: 13, color: '#6B7280', textAlign: 'center' },
-  retryBtn:                { marginTop: 16, backgroundColor: '#7C3AED', borderRadius: 14, paddingHorizontal: 24, paddingVertical: 12 },
+  retryBtn:                { marginTop: 16, backgroundColor: BrandColors.primary, borderRadius: 14, paddingHorizontal: 24, paddingVertical: 12 },
   retryBtnText:            { color: '#FFF', fontWeight: '700', fontSize: 14 },
   // Repartidor — Mi Panel button
   repartidorBtn:       { marginHorizontal: 16, marginTop: 16, borderRadius: 16, overflow: 'hidden', elevation: 4, shadowColor: '#F97316', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.3, shadowRadius: 8 },
@@ -596,9 +597,9 @@ const styles = StyleSheet.create({
   seccionEmoji:        { fontSize: 20 },
   seccionTitle:        { fontSize: 15, fontWeight: '700', color: '#1E0A3C' },
   seccionRight:        { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  seccionBadge:        { backgroundColor: '#7C3AED', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
+  seccionBadge:        { backgroundColor: BrandColors.primary, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
   seccionBadgeText:    { color: '#FFF', fontSize: 11, fontWeight: '700' },
-  seccionArrow:        { fontSize: 12, color: '#7C3AED' },
+  seccionArrow:        { fontSize: 12, color: BrandColors.primary },
   seccionBody:         { marginHorizontal: 16, backgroundColor: '#FFF', borderBottomLeftRadius: 16, borderBottomRightRadius: 16, paddingHorizontal: 16, paddingBottom: 8, elevation: 1 },
   emptyText:           { textAlign: 'center', color: '#9CA3AF', fontSize: 14, paddingVertical: 16 },
   itemCard:            { flexDirection: 'row', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F9FAFB', alignItems: 'center' },
