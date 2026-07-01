@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CaseritaExpress — Piloto Santa Cruz · 6 julio 2025</title>
+<style>
+  :root {
+    --verde:   #16A34A;
+    --rojo:    #DC2626;
+    --naranja: #EA580C;
+    --azul:    #2563EB;
+    --gris:    #6B7280;
+    --bg:      #F9FAFB;
+    --card:    #FFFFFF;
+    --borde:   #E5E7EB;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: #111827;
+    font-size: 15px;
+    line-height: 1.55;
+    padding: 16px;
+    max-width: 780px;
+    margin: 0 auto;
+  }
+
+  /* ── PORTADA ── */
+  .portada {
+    background: linear-gradient(135deg, #1E0A3C 0%, #3B1F6E 100%);
+    color: white;
+    border-radius: 16px;
+    padding: 28px 24px;
+    margin-bottom: 24px;
+    text-align: center;
+  }
+  .portada .logo { font-size: 36px; margin-bottom: 8px; }
+  .portada h1 { font-size: 22px; font-weight: 800; margin-bottom: 4px; }
+  .portada .sub { font-size: 14px; opacity: 0.75; margin-bottom: 16px; }
+  .portada .fecha {
+    display: inline-block;
+    background: rgba(255,255,255,0.15);
+    border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 20px;
+    padding: 6px 18px;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+  }
+  .portada .datos {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    margin-top: 16px;
+    font-size: 13px;
+    opacity: 0.85;
+    flex-wrap: wrap;
+  }
+  .portada .datos span::before { margin-right: 4px; }
+
+  /* ── ALERTA ── */
+  .alerta {
+    background: #FEF3C7;
+    border: 2px solid #F59E0B;
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 20px;
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    font-size: 14px;
+  }
+  .alerta .icon { font-size: 20px; flex-shrink: 0; }
+  .alerta strong { display: block; font-weight: 700; color: #92400E; margin-bottom: 2px; }
+  .alerta p { color: #78350F; }
+
+  /* ── SECCIONES ── */
+  .seccion {
+    background: var(--card);
+    border-radius: 14px;
+    border: 1px solid var(--borde);
+    margin-bottom: 20px;
+    overflow: hidden;
+  }
+  .seccion-header {
+    padding: 14px 18px;
+    font-size: 15px;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 1px solid var(--borde);
+  }
+  .seccion-header.verde  { background: #F0FDF4; color: #15803D; }
+  .seccion-header.azul   { background: #EFF6FF; color: #1D4ED8; }
+  .seccion-header.naranja{ background: #FFF7ED; color: #C2410C; }
+  .seccion-header.rojo   { background: #FEF2F2; color: #B91C1C; }
+  .seccion-header.morado { background: #F5F3FF; color: #6D28D9; }
+  .seccion-header .emoji { font-size: 20px; }
+  .seccion-header .numero {
+    background: currentColor;
+    color: white;
+    border-radius: 50%;
+    width: 26px; height: 26px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 800; flex-shrink: 0;
+  }
+
+  /* ── PASOS ── */
+  .paso {
+    padding: 14px 18px;
+    border-bottom: 1px solid #F3F4F6;
+  }
+  .paso:last-child { border-bottom: none; }
+
+  .paso-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+  .paso-num {
+    min-width: 28px; height: 28px;
+    background: #1E0A3C;
+    color: white;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 800;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .paso-titulo {
+    font-weight: 700;
+    font-size: 15px;
+    color: #111827;
+  }
+  .paso-accion {
+    font-size: 13.5px;
+    color: #374151;
+    margin-left: 40px;
+    margin-bottom: 6px;
+  }
+
+  .tag {
+    display: inline-block;
+    border-radius: 6px;
+    font-size: 11.5px;
+    font-weight: 700;
+    padding: 2px 8px;
+    margin-right: 4px;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+  .tag-esperar { background: #EFF6FF; color: #1D4ED8; }
+  .tag-falla   { background: #FEF2F2; color: #B91C1C; }
+  .tag-bd      { background: #F0FDF4; color: #15803D; }
+  .tag-app     { background: #FFF7ED; color: #C2410C; }
+
+  .bloque {
+    background: #F9FAFB;
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-left: 40px;
+    margin-bottom: 6px;
+    font-size: 13px;
+  }
+  .bloque.esperar { border-left: 3px solid #2563EB; }
+  .bloque.falla   { border-left: 3px solid #DC2626; }
+  .bloque.bd      { border-left: 3px solid #16A34A; }
+
+  .bloque .label {
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+  }
+  .bloque.esperar .label { color: #2563EB; }
+  .bloque.falla   .label { color: #DC2626; }
+  .bloque.bd      .label { color: #16A34A; }
+
+  code {
+    background: #1E0A3C;
+    color: #C4B5FD;
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 12px;
+  }
+
+  /* ── TABLA ── */
+  .tabla-wrap { overflow-x: auto; margin: 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { background: #F3F4F6; color: #374151; font-weight: 700; padding: 9px 12px; text-align: left; border-bottom: 2px solid #E5E7EB; }
+  td { padding: 9px 12px; border-bottom: 1px solid #F3F4F6; vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+
+  /* ── CHECKLIST ── */
+  .check-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 18px;
+    border-bottom: 1px solid #F3F4F6;
+    font-size: 14px;
+  }
+  .check-item:last-child { border-bottom: none; }
+  .check-box {
+    width: 20px; height: 20px;
+    border: 2px solid #D1D5DB;
+    border-radius: 5px;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .check-item .det { font-size: 12px; color: var(--gris); margin-top: 2px; }
+
+  /* ── PROTOCOLO ── */
+  .proto-item {
+    padding: 14px 18px;
+    border-bottom: 1px solid #F3F4F6;
+  }
+  .proto-item:last-child { border-bottom: none; }
+  .proto-titulo {
+    font-weight: 700;
+    font-size: 14px;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .proto-pasos { padding-left: 18px; font-size: 13.5px; color: #374151; }
+  .proto-pasos li { margin-bottom: 4px; }
+
+  /* ── COLUMNAS ── */
+  .cols { display: flex; gap: 12px; flex-wrap: wrap; margin: 0; }
+  .col  { flex: 1; min-width: 220px; }
+
+  /* ── FOOTER ── */
+  .footer {
+    text-align: center;
+    font-size: 12px;
+    color: var(--gris);
+    margin-top: 24px;
+    padding-bottom: 16px;
+  }
+
+  /* ── BUG CRÍTICO ── */
+  .bug {
+    background: #FFF1F2;
+    border: 2px solid #F43F5E;
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin: 0 18px 14px;
+    font-size: 13.5px;
+  }
+  .bug strong { color: #BE123C; display: block; margin-bottom: 4px; font-size: 14px; }
+  .bug ul { padding-left: 18px; color: #374151; }
+  .bug ul li { margin-bottom: 3px; }
+
+  /* ── PRINT ── */
+  @media print {
+    body { background: white; padding: 8px; font-size: 13px; }
+    .portada { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .seccion-header { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .paso-num { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .bloque { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .alerta { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .bug { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .seccion { page-break-inside: avoid; }
+    @page { margin: 1.5cm; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════ PORTADA -->
+<div class="portada">
+  <div class="logo">🛵</div>
+  <h1>CaseritaExpress</h1>
+  <div class="sub">Piloto Santa Cruz — QTP Carnes</div>
+  <div class="fecha">📅 Domingo 6 de julio de 2025</div>
+  <div class="datos">
+    <span>🏪 1 restaurante</span>
+    <span>🛵 2–3 repartidores</span>
+    <span>📱 Stack: RN + Expo + Supabase</span>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════ ALERTA GPS -->
+<div class="alerta">
+  <div class="icon">⚠️</div>
+  <div>
+    <strong>VERIFICAR ANTES DEL PILOTO: Discrepancia en tabla GPS</strong>
+    <p>El panel del repartidor (<code>tracking.tsx</code>) escribe en <code>tracking_repartidores</code>,
+    pero el seguimiento del cliente (<code>seguimiento.tsx</code>) lee de <code>ubicaciones_repartidores</code>.
+    Si el GPS no aparece en la pantalla del cliente, esta es la causa más probable.
+    Revisar en Supabase cuál tabla existe y reconciliar antes del 6 de julio.</p>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════ PARTE 1: CHECKLIST TÉCNICO -->
+<div class="seccion">
+  <div class="seccion-header verde">
+    <span class="emoji">✅</span>
+    PARTE 1 — CHECKLIST TÉCNICO END-TO-END
+    <span style="font-size:12px; font-weight:400; margin-left:auto; color:#15803D;">Ejecutar el día anterior (5 jul) con dispositivos reales</span>
+  </div>
+
+  <!-- PASO 1 -->
+  <div class="paso">
+    <div class="paso-header">
+      <div class="paso-num">1</div>
+      <div class="paso-titulo">Login de cliente — nueva cuenta</div>
+    </div>
+    <div class="paso-accion">
+      Crea una cuenta nueva con email de prueba en la pantalla <code>/login</code>.
+      Verificar que el perfil se crea con <code>rol = 'cliente'</code>.
+    </div>
+    <div class="bloque esperar">
+      <div class="label">✅ Esperar</div>
+      Pantalla principal carga. Supabase Auth muestra el usuario en <em>Authentication → Users</em>.
+      En tabla <code>profiles</code>: <code>rol = 'cliente'</code>.
+    </div>
+    <div class="bloque falla">
+      <div class="label">🔴 Si falla</div>
+      Revisar trigger <code>handle_new_user</code> en Supabase. Verificar que la política RLS de <code>profiles</code>
+      permita INSERT al propio usuario.
+    </div>
+  </div>
+
+  <!-- PASO 2 -->
+  <div class="paso">
+    <div class="paso-header">
+      <div class="paso-num">2</div>
+      <div class="paso-titulo">Catálogo — QTP Carnes aparece visible</div>
+    </div>
+    <div class="paso-accion">
+      En pantalla <code>/delivery</code>, confirmar que QTP Carnes aparece en la lista.
+      Verificar que sus productos están cargados y disponibles.
+    </div>
+    <div class="bloque esperar">
+      <div class="label">✅ Esperar</div>
+      Card del negocio visible con nombre, categoría y productos. Si ya tiene ratings: estrellas con decimal.
+      Si no tiene: badge "✨ Nuevo".
+    </div>
+    <div class="bloque falla">
+      <div class="label">🔴 Si falla</div>
+      En Supabase: confirmar <code>negocios.activo = true</code> para QTP Carnes.
+      Confirmar <code>productos.disponible = true</code>. Revisar política RLS
+      <code>autenticados_leen_negocios_activos</code>.
+    </div>
+  </div>
+
+  <!-- PASO 3 -->
+  <div class="paso">
+    <div class="paso-header">
+      <div class="paso-num">3</div>
+      <div class="paso-titulo">Armar carrito y llegar a pantalla de pago</div>
+    </div>
+    <div class="paso-accion">
+      Seleccionar 1–2 productos de QTP Carnes. Ir al carrito (<code>/carrito</code>).
+      Confirmar que el total calculado es correcto. Presionar "Pagar".
+    </div>
+    <div class="bloque esperar">
+      <div class="label">✅ Esperar</div>
+      Se crea un pedido en tabla <code>pedidos</code> con <code>estado = 'pendiente'</code> y
+      <code>total</code> correcto. La app navega a <code>/pago-qr</code> con los parámetros
+      <code>pedidoId</code> y <code>total</code>.
+    </div>
+    <div class="bloque falla">
+      <div class="label">🔴 Si falla</div>
+      Revisar CarritoContext. Verificar política RLS <code>cliente_inserta_pedido</code> en tabla <code>pedidos</code>.
+      Confirmar que la inserción incluye <code>cliente_id = auth.uid()</code>.
+    </div>
+  </div>
+
+  <!-- PASO 4 -->
+  <div class="paso">
+    <div class="paso-header">
+      <div class="paso-num">4</div>
+      <div class="paso-titulo">Pantalla de pago QR — ALTOKE</div>
+    </div>
+    <div class="paso-accion">
+      En pantalla <code>/pago-qr</code>: verificar que el QR de ALTOKE se muestra correctamente
+      y el timer de 30 minutos empieza a correr. Anotar el monto visible en pantalla.
+    </div>
+    <div class="bloque esperar">
+      <div class="label">✅ Esperar</div>
+      Timer visible iniciando en <strong>30:00</strong>. QR del cuenta bancaria ALTOKE legible.
+      Monto coincide con el total del pedido. Botón "Seleccionar comprobante" habilitado.
+    </div>
+    <div class="bloque falla">
+      <div class="label">🔴 Si falla</div>
+      Si el QR no carga: verificar que la imagen/URL del QR en la app está actualizada con la cuenta correcta.
+      Si el monto no coincide: revisar cómo <code>carrito.tsx</code> pasa el parámetro <code>total</code>.
+    </div>
+  </div>
+
+  <!-- PASO 5 -->
+  <div class="paso">
+    <div class="paso-header">
+      <div class="paso-num">5</div>
+      <div class="paso-titulo">Transferencia ALTOKE real + subir comprobante</div>
+    </div>
+    <div class="paso-accion">
+      Hacer una transferencia real por el monto exacto desde ALTOKE.
+      Tomar captura de pantalla del comprobante. En la app, presionar "Seleccionar comprobante"
+      y elegir la imagen de la galería.
+    </div>
+    <div class="bloque esperar">
+      <div class="label">✅ Esperar</div>
+      La app muestra "Subiendo comprobante…" y luego "Verificando con IA…".
+      En Supabase Storage bucket <code>comprobantes</code>: el archivo aparece en
+      <code>{userId}/{pedidoId}/comprobante_*.jpg</code>.
+      En tabla <code>pedidos</code>: campo <code>comprobante_url</code> actualizado.
+    </div>
+    <div class="bloque falla">
+      <div class="label">🔴 Si falla la subida</div>
+      Revisar políticas del bucket <code>comprobantes</code> en Supabase Storage (debe permitir INSERT al cliente).
+      Verificar conexión a internet del dispositivo de prueba.
+    </div>
+  </div>
+
+  <!-- PASO 6 -->
+  <div class="paso">
+    <div class="paso-header">
+      <div class="paso-num">6</div>
+      <div class="paso-titulo">Claude Vision valida el comprobante</div>
+    </div>
+    <div class="paso-accion">
+      Observar el resultado de la validación. La Edge Function <code>validar-comprobante</code>
+      analiza la imagen con Claude Vision y responde <code>valido: true/false</code>.
+    </div>
+    <div class="bloque esperar">
+      <div class="label">✅ Esperar</div>
+      Pantalla muestra "✅ ¡Pago confirmado! Tu pedido está en preparación."
+      Después de 2.5 s, navega automáticamente a <code>/seguimiento</code>.
+      En tabla <code>pedidos</code>: <code>estado</code> cambia a <code>'confirmado'</code>.
+    </div>
+    <div class="bloque falla">
+      <div class="label">🔴 Si la IA rechaza el comprobante</div>
+      La pantalla muestra el motivo de rechazo. Intentar de nuevo con mejor foto
+      (buena iluminación, sin recortar el monto). El cliente tiene hasta 3 intentos sin bloqueo.
+      Si sigue fallando: ver Protocolo Operativo → Sección "Comprobante no valida".
+    </div>
+  </div>
+
+  <!-- PASO 7 -->
+  <div class="paso">
+    <div class="paso-header">
+      <div class="paso-num">7</div>
+      <div class="paso-titulo">Admin asigna repartidor al pedido</div>
+    </div>
+    <div class="paso-accion">
+      En panel admin (<code>/admin/pedidos</code>): el pedido confirmado aparece en la lista.
+      Asignar el repartidor de prueba al pedido y cambiar estado a <code>asignado</code>.
+    </div>
+    <div class="bloque esperar">
+      <div class="label">✅ Esperar</div>
+      En tabla <code>pedidos</code>: <code>repartidor_id</code> asignado y <code>estado = 'asignado'</code>.
+      El pedido ya no aparece como "pendiente" en el panel.
+    </div>
+    <div class="bloque falla">
+      <div class="label">🔴 Si falla</div>
+      Verificar política <code>admin_actualiza_estado_pedido</code> en tabla <code>pedidos</code>.
+      Confirmar que el admin está logueado con <code>rol = 'admin'</code>.
+    </div>
+  </div>
+
+  <!-- PASO 8 -->
+  <div class="paso">
+    <div class="paso-header">
+      <div class="paso-num">8</div>
+      <div class="paso-titulo">Repartidor recibe el pedido en su panel</div>
+    </div>
+    <div class="paso-accion">
+      En el celular del repartidor, abrir <code>/repartidor/pedidos</code>.
+      Verificar que el pedido asignado aparece en tiempo real (Supabase Realtime).
+    </div>
+    <div class="bloque esperar">
+      <div class="label">✅ Esperar</div>
+      Tarjeta del pedido visible con estado "Asignado" y botón "Iniciar entrega".
+      Aparece sin necesidad de recargar la pantalla (Realtime activo).
+    </div>
+    <div class="bloque falla">
+      <div class="label">🔴 Si no aparece en tiempo real</div>
+      El repartidor puede recargar manualmente. Revisar si la suscripción Realtime
+      está activa en <code>repartidor/pedidos.tsx</code> y que el filtro
+      <code>repartidor_id=eq.{uid}</code> es correcto.
+    </div>
+  </div>
+
+  <!-- PASO 9 -->
+  <div class="paso">
+    <div class="paso-header">
+      <div class="paso-num">9</div>
+      <div class="paso-titulo">Repartidor activa GPS tracking</div>
+    </div>
+    <div class="paso-accion">
+      El repartidor va a <code>/repartidor/tracking</code> y activa el switch de tracking.
+      Conceder permiso de ubicación si se solicita. Esperar 10–15 segundos para
+      confirmar que el GPS envía coordenadas.
+    </div>
+    <div class="bloque esperar">
+      <div class="label">✅ Esperar</div>
+      La pantalla muestra lat/lng actualizándose. En Supabase, tabla
+      <code>tracking_repartidores</code>: aparece o actualiza la fila del repartidor
+      con coordenadas reales y <code>updated_at</code> reciente.
+    </div>
+    <div class="bloque falla">
+      <div class="label">🔴 Si falla (ver ALERTA al inicio del doc)</div>
+      El repartidor escribe en <code>tracking_repartidores</code> pero el cliente
+      lee de <code>ubicaciones_repartidores</code>. Verificar cuál tabla existe en
+      Supabase y unificarlas antes del piloto. Ver Protocolo → Sección GPS.
+    </div>
+  </div>
+
+  <!-- PASO 10 -->
+  <div class="paso">
+    <div class="paso-header">
+      <div class="paso-num">10</div>
+      <div class="paso-titulo">Repartidor marca "Iniciar entrega" → en_camino</div>
+    </div>
+    <div class="paso-accion">
+      El repartidor presiona "Iniciar entrega" en la tarjeta del pedido.
+      El estado cambia a <code>en_camino</code>.
+    </div>
+    <div class="bloque esperar">
+      <div class="label">✅ Esperar</div>
+      Tabla <code>pedidos</code>: <code>estado = 'en_camino'</code>.
+      En pantalla de seguimiento del cliente: el marcador de progreso avanza
+      al paso "Repartidor en camino 🏍️" automáticamente (Realtime).
+    </div>
+    <div class="bloque falla">
+      <div class="label">🔴 Si falla</div>
+      Verificar política RLS que permite al repartidor hacer UPDATE de pedidos
+      donde <code>repartidor_id = auth.uid()</code>. Revisar <code>NEXT_STATE</code>
+      en <code>repartidor/pedidos.tsx</code>: <code>confirmado → en_camino</code>.
+    </div>
+  </div>
+
+  <!-- PASO 11 -->
+  <div class="paso">
+    <div class="paso-header">
+      <div class="paso-num">11</div>
+      <div class="paso-titulo">GPS del repartidor visible en pantalla del cliente</div>
+    </div>
+    <div class="paso-accion">
+      En el celular del cliente, ir a <code>/seguimiento</code>.
+      Tab "Repartidor" o sección del mapa: verificar que el marcador del repartidor
+      se mueve en tiempo real mientras el repartidor se desplaza.
+    </div>
+    <div class="bloque esperar">
+      <div class="label">✅ Esperar</div>
+      Componente <code>MapaRepartidor</code> muestra el marcador del repartidor.
+      Al moverse 10 segundos, el marcador se actualiza en pantalla sin recargar.
+    </div>
+    <div class="bloque falla">
+      <div class="label">🔴 Si el marcador no aparece</div>
+      Primero confirmar que la tabla GPS existe y tiene datos (ver Paso 9).
+      Luego revisar política RLS: el cliente debe poder leer la ubicación cuando
+      tiene un pedido activo (<code>estado IN ('confirmado','preparando','en_camino')</code>)
+      con ese repartidor.
+    </div>
+  </div>
+
+  <!-- PASO 12 -->
+  <div class="paso">
+    <div class="paso-header">
+      <div class="paso-num">12</div>
+      <div class="paso-titulo">Entrega física + repartidor marca "Marcar entregado"</div>
+    </div>
+    <div class="paso-accion">
+      El repartidor entrega el pedido en persona. En su panel, presionar
+      "Marcar entregado". Estado pasa a <code>entregado</code>.
+    </div>
+    <div class="bloque esperar">
+      <div class="label">✅ Esperar</div>
+      Tabla <code>pedidos</code>: <code>estado = 'entregado'</code>.
+      En pantalla del cliente: progreso llega al paso 5 "¡Pedido entregado! 🎉".
+    </div>
+    <div class="bloque falla">
+      <div class="label">🔴 Si falla</div>
+      Mismo RLS del Paso 10. Verificar <code>NEXT_STATE</code>:
+      <code>en_camino → entregado</code>.
+    </div>
+  </div>
+
+  <!-- PASO 13 -->
+  <div class="paso">
+    <div class="paso-header">
+      <div class="paso-num">13</div>
+      <div class="paso-titulo">Modal de calificación aparece automáticamente</div>
+    </div>
+    <div class="paso-accion">
+      En la pantalla de seguimiento del cliente, verificar que el modal de rating
+      aparece a los ~800ms de detectar el estado <code>entregado</code>.
+    </div>
+    <div class="bloque esperar">
+      <div class="label">✅ Esperar</div>
+      Modal con estrellas 1–5 para el negocio (obligatorio) y repartidor (opcional).
+      Al enviar: fila en tabla <code>ratings</code>. El modal no vuelve a aparecer
+      si se recarga la pantalla (constraint UNIQUE por pedido+cliente).
+    </div>
+    <div class="bloque falla">
+      <div class="label">🔴 Si el modal no aparece</div>
+      Revisar que el estado llega vía Realtime a <code>seguimiento.tsx</code>.
+      Verificar estado en tabla <code>pedidos</code> es exactamente <code>'entregado'</code>.
+    </div>
+  </div>
+
+  <!-- PASO 14 -->
+  <div class="paso">
+    <div class="paso-header">
+      <div class="paso-num">14</div>
+      <div class="paso-titulo">Liquidación nocturna (verificar config)</div>
+    </div>
+    <div class="paso-accion">
+      En Supabase Edge Functions: verificar que <code>liquidacion-nocturna</code> está
+      programada y activa. <strong>NO ejecutar</strong> manualmente antes del piloto.
+      Solo confirmar que está configurada.
+    </div>
+    <div class="bloque esperar">
+      <div class="label">✅ Esperar</div>
+      En Supabase → Edge Functions → <code>liquidacion-nocturna</code>: estado "Active".
+      En el historial de invocaciones: ejecuciones previas sin errores.
+    </div>
+    <div class="bloque falla">
+      <div class="label">🔴 Si tiene errores recientes</div>
+      Revisar logs. Si hay errores en el cron, notificar antes del piloto.
+      Los pedidos del piloto se cierran esa misma noche.
+    </div>
+  </div>
+
+  <!-- PASO 15 -->
+  <div class="paso">
+    <div class="paso-header">
+      <div class="paso-num">15</div>
+      <div class="paso-titulo">Ciclo completo end-to-end — resumen de verificación</div>
+    </div>
+    <div class="paso-accion">
+      Revisar en Supabase Dashboard que el pedido de prueba pasó por todos los estados
+      y que los datos son coherentes.
+    </div>
+    <div class="bloque bd">
+      <div class="label">📋 Verificar en Supabase</div>
+      <code>pedidos</code>: estado = 'entregado', comprobante_url ≠ null, repartidor_id ≠ null<br>
+      <code>ratings</code>: fila con calificacion_negocio y cliente_id correctos<br>
+      <code>comprobantes</code> (Storage): archivo de imagen presente<br>
+      <code>tracking_repartidores</code> o <code>ubicaciones_repartidores</code>: fila con lat/lng recientes
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════ PARTE 2: PROTOCOLO DÍA DEL PILOTO -->
+<div class="seccion">
+  <div class="seccion-header azul">
+    <span class="emoji">🗓️</span>
+    PARTE 2 — PROTOCOLO OPERATIVO · DÍA DEL PILOTO
+  </div>
+
+  <!-- ANTES DE LAS 9AM -->
+  <div class="seccion-header azul" style="border-top: 1px solid #BFDBFE; font-size:13px; padding:10px 18px;">
+    🕘 &nbsp; CHECKLIST DE ARRANQUE — Antes de las 9:00 AM
+  </div>
+
+  <div class="check-item">
+    <div class="check-box"></div>
+    <div>
+      <strong>Supabase activo</strong>
+      <div class="det">Abrir <a href="https://supabase.com/dashboard" target="_blank">supabase.com/dashboard</a> → confirmar que el proyecto <code>gmfjnzwmfcufgolptaoi</code> está Online (no en pausa).</div>
+    </div>
+  </div>
+  <div class="check-item">
+    <div class="check-box"></div>
+    <div>
+      <strong>Edge Function validar-comprobante activa</strong>
+      <div class="det">Supabase → Edge Functions → <code>validar-comprobante</code>: última invocación sin error. Si falló, revisar logs antes de abrir el piloto.</div>
+    </div>
+  </div>
+  <div class="check-item">
+    <div class="check-box"></div>
+    <div>
+      <strong>QTP Carnes habilitado</strong>
+      <div class="det">En tabla <code>negocios</code>: <code>activo = true</code>. Sus productos: <code>disponible = true</code>. Confirmar con el dueño del restaurante que están listos para recibir pedidos.</div>
+    </div>
+  </div>
+  <div class="check-item">
+    <div class="check-box"></div>
+    <div>
+      <strong>Repartidores con GPS listo</strong>
+      <div class="det">Cada repartidor abre la app, va a <code>/repartidor/tracking</code> y activa el switch. Confirmar en Supabase que sus filas en la tabla GPS se actualizan.</div>
+    </div>
+  </div>
+  <div class="check-item">
+    <div class="check-box"></div>
+    <div>
+      <strong>Cuenta ALTOKE verificada</strong>
+      <div class="det">Hacer una transferencia de prueba de Bs. 1 antes de abrir operaciones. Confirmar que el QR en la app corresponde a la cuenta activa del día.</div>
+    </div>
+  </div>
+  <div class="check-item">
+    <div class="check-box"></div>
+    <div>
+      <strong>Admin logueado en panel</strong>
+      <div class="det">Abrir <code>/admin/pedidos</code> en un dispositivo dedicado (tablet o laptop). Confirmar que los pedidos se ven y el botón de asignar repartidor funciona.</div>
+    </div>
+  </div>
+  <div class="check-item">
+    <div class="check-box"></div>
+    <div>
+      <strong>caseritaexpress.com respondiendo</strong>
+      <div class="det">Abrir la URL en el navegador. Si hay error de deploy en Vercel, revisar la consola de Vercel antes de aceptar pedidos reales.</div>
+    </div>
+  </div>
+  <div class="check-item">
+    <div class="check-box"></div>
+    <div>
+      <strong>Batería y datos móviles</strong>
+      <div class="det">Repartidores con celular ≥80% de batería. Plan de datos activo. Banco de energía disponible como respaldo.</div>
+    </div>
+  </div>
+</div>
+
+
+<!-- PLAN B -->
+<div class="seccion">
+  <div class="seccion-header naranja">
+    <span class="emoji">🚨</span>
+    PLANES B — Qué hacer si algo falla
+  </div>
+
+  <!-- GPS FALLA -->
+  <div class="proto-item">
+    <div class="proto-titulo">🛰️ Plan B: GPS del repartidor no aparece en pantalla del cliente</div>
+    <ol class="proto-pasos">
+      <li>El repartidor cierra la pantalla de tracking, espera 5 seg y la reactiva.</li>
+      <li>Confirmar que el celular del repartidor tiene señal GPS (no solo WiFi). Salir al exterior si está en edificio.</li>
+      <li>Verificar en Supabase que la tabla GPS (<code>tracking_repartidores</code> o <code>ubicaciones_repartidores</code>) tiene la fila actualizada con <code>updated_at</code> de hace menos de 30 segundos.</li>
+      <li>Si no hay datos en ninguna tabla: el repartidor tiene un bug de tabla. <strong>Solución inmediata:</strong> activar comunicación directa por WhatsApp — el repartidor manda su ubicación de Google Maps al cliente.</li>
+      <li>Anotar el bug para corregir post-piloto. No interrumpir el pedido.</li>
+    </ol>
+  </div>
+
+  <!-- COMPROBANTE NO VALIDA -->
+  <div class="proto-item">
+    <div class="proto-titulo">📷 Plan B: Comprobante rechazado por Claude Vision</div>
+    <ol class="proto-pasos">
+      <li>Pedir al cliente que tome otra foto: con buena luz, sin recortar, enfocada en el monto y número de referencia.</li>
+      <li>Si vuelve a fallar (2do intento): pedir que suba una captura de pantalla directa desde ALTOKE (no foto de pantalla con otro celular).</li>
+      <li>Si el 3er intento falla: el admin valida manualmente. En Supabase, tabla <code>pedidos</code>: cambiar <code>estado</code> a <code>'confirmado'</code> directamente con el SQL Editor (<code>UPDATE pedidos SET estado='confirmado' WHERE id='...'</code>). El cliente recibe confirmación de texto por WhatsApp.</li>
+      <li>Verificar el comprobante real en la app de banco antes de validar manualmente.</li>
+    </ol>
+  </div>
+
+  <!-- APP SE CAE -->
+  <div class="proto-item">
+    <div class="proto-titulo">📵 Plan B: La app o Vercel se caen en medio de un pedido</div>
+    <ol class="proto-pasos">
+      <li>Verificar en <a href="https://www.vercel.com" target="_blank">vercel.com</a> si hay un deploy fallido. Si es así, revertir al deploy anterior con un clic desde el dashboard.</li>
+      <li>Si Supabase falla: verificar en <a href="https://status.supabase.com" target="_blank">status.supabase.com</a>. Usar el canal de WhatsApp del equipo para coordinar pedidos manualmente mientras vuelve el servicio.</li>
+      <li>Para pedidos en vuelo: el admin ya tiene el pedido en la base de datos. Coordinar la entrega por teléfono. El pago ya fue procesado (Supabase lo tiene aunque la app no responda).</li>
+      <li>Tener el número de WhatsApp del restaurante y los repartidores visibles para comunicación de emergencia.</li>
+    </ol>
+  </div>
+
+  <!-- PRIMER PEDIDO REAL -->
+  <div class="proto-item">
+    <div class="proto-titulo">🎯 Cómo manejar el primer pedido real sin que se note que es piloto</div>
+    <ol class="proto-pasos">
+      <li><strong>Antes de que llegue:</strong> el admin está en pantalla de pedidos activamente. No esperar notificaciones — revisar cada 2 minutos.</li>
+      <li><strong>Al llegar el pedido:</strong> asignar repartidor inmediatamente (menos de 60 segundos). Si el cliente ve que el estado cambia rápido, la experiencia se percibe profesional.</li>
+      <li><strong>Comunicación proactiva:</strong> enviar un mensaje de WhatsApp al cliente confirmando la recepción del pedido, aunque la app ya lo muestre. El toque humano elimina la incertidumbre de un primer cliente.</li>
+      <li><strong>El repartidor avisa al llegar al restaurante</strong> por WhatsApp al admin. El admin cambia el estado si el repartidor tiene problema con la app.</li>
+      <li><strong>En la entrega:</strong> el repartidor saluda con nombre ("¿Eres [nombre del cliente]? Aquí está tu pedido de QTP Carnes"). Pequeño detalle que suma.</li>
+      <li><strong>Post-entrega:</strong> mensaje de WhatsApp al cliente pidiendo calificación si el modal no apareció, y agradeciéndole ser el primer cliente del piloto.</li>
+    </ol>
+  </div>
+
+  <!-- REPARTIDOR CON PROBLEMA DE APP -->
+  <div class="proto-item">
+    <div class="proto-titulo">🛵 Plan B: Repartidor no puede usar la app</div>
+    <ol class="proto-pasos">
+      <li>El admin gestiona manualmente los estados del pedido desde <code>/admin/pedidos</code>.</li>
+      <li>Comunicación con el repartidor por WhatsApp: "Ya tienes un pedido en [dirección]. Recoge en QTP Carnes."</li>
+      <li>El admin actualiza el estado a <code>en_camino</code> manualmente cuando el repartidor confirma por WhatsApp que salió.</li>
+      <li>El admin marca <code>entregado</code> cuando el repartidor confirma la entrega.</li>
+    </ol>
+  </div>
+
+</div>
+
+
+<!-- FLUJO ESTADOS RÁPIDO -->
+<div class="seccion">
+  <div class="seccion-header morado">
+    <span class="emoji">🔄</span>
+    REFERENCIA RÁPIDA — Máquina de estados del pedido
+  </div>
+  <div class="tabla-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Estado</th>
+          <th>Quién lo cambia</th>
+          <th>Cómo</th>
+          <th>Qué ve el cliente</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>pendiente</code></td>
+          <td>Sistema automático</td>
+          <td>Al crear el pedido en carrito</td>
+          <td>Pantalla de pago QR activa</td>
+        </tr>
+        <tr>
+          <td><code>confirmado</code></td>
+          <td>Edge Function</td>
+          <td>Claude Vision valida comprobante</td>
+          <td>Redirige a /seguimiento · progreso paso 1</td>
+        </tr>
+        <tr>
+          <td><code>asignado</code></td>
+          <td>Admin</td>
+          <td>Panel /admin/pedidos</td>
+          <td>Progreso paso 2 (preparando)</td>
+        </tr>
+        <tr>
+          <td><code>en_camino</code></td>
+          <td>Repartidor</td>
+          <td>Botón "Iniciar entrega" en /repartidor/pedidos</td>
+          <td>Progreso paso 3 · GPS visible en mapa</td>
+        </tr>
+        <tr>
+          <td><code>entregado</code></td>
+          <td>Repartidor</td>
+          <td>Botón "Marcar entregado"</td>
+          <td>Progreso paso 5 "🎉" · Modal rating aparece</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+
+<!-- CONTACTOS -->
+<div class="seccion">
+  <div class="seccion-header rojo">
+    <span class="emoji">📞</span>
+    CONTACTOS DE EMERGENCIA DEL PILOTO
+  </div>
+  <div class="tabla-wrap">
+    <table>
+      <thead>
+        <tr><th>Rol</th><th>Nombre</th><th>WhatsApp</th><th>Responsabilidad</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Fundador / Admin</td><td>Álvaro</td><td>___________</td><td>Decisiones, validación manual</td></tr>
+        <tr><td>Repartidor 1</td><td>___________</td><td>___________</td><td>Entregas zona ___</td></tr>
+        <tr><td>Repartidor 2</td><td>___________</td><td>___________</td><td>Entregas zona ___</td></tr>
+        <tr><td>QTP Carnes</td><td>___________</td><td>___________</td><td>Confirmación de pedidos</td></tr>
+        <tr><td>Soporte técnico</td><td>___________</td><td>___________</td><td>Bugs urgentes</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+
+<div class="footer">
+  CaseritaExpress · Piloto Santa Cruz · 6 julio 2025 · Documento generado automáticamente · Álvaro
+</div>
+
+</body>
+</html>
