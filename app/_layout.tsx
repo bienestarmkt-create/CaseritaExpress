@@ -119,6 +119,7 @@ export default function RootLayout() {
   }
 
   const esRepartidor = rol === 'repartidor';
+  const esAdmin      = rol === 'admin';
 
   return (
     <CarritoProvider>
@@ -153,6 +154,12 @@ export default function RootLayout() {
         <Tabs.Screen
           name="perfil"
           options={{ title: 'Perfil', tabBarIcon: ({ color, size }) => <Ionicons name="person-outline" size={size} color={color} /> }}
+        />
+
+        {/* Solo admins */}
+        <Tabs.Screen
+          name="admin"
+          options={{ title: 'Admin', href: esAdmin ? undefined : null, tabBarIcon: ({ color, size }) => <Ionicons name="settings-outline" size={size} color={color} /> }}
         />
 
         {/* Pantallas sin tab */}
