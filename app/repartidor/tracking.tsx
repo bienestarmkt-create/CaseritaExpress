@@ -5,7 +5,9 @@
  *
  * - Toggle para activar/desactivar transmisión de ubicación.
  * - GPS continuo cada 10 s con expo-location.
- * - Upsert en tabla tracking_repartidores (conflict: repartidor_id).
+ * - Upsert en tabla ubicaciones_repartidores (conflict: pedido_id).
+ * - Requiere un pedido activo (confirmado/preparando/en_camino)
+ *   asignado al repartidor; sin pedido activo no se transmite.
  * - Muestra coordenadas actuales, última actualización, estado.
  * ─────────────────────────────────────────────────────────────
  */
@@ -38,6 +40,7 @@ const C = {
 // ─── Componente principal ─────────────────────────────────────
 export default function TrackingScreen() {
   const [userId,      setUserId]      = useState<string | null>(null)
+  const [pedidoId,    setPedidoId]    = useState<string | null>(null)  // pedido activo asignado
   const [permisoOk,   setPermisoOk]   = useState<boolean | null>(null)  // null = pendiente
   const [activo,      setActivo]      = useState(false)
   const [lat,         setLat]         = useState<number | null>(null)
@@ -60,9 +63,30 @@ export default function TrackingScreen() {
     init()
   }, [])
 
+  // ── Buscar el pedido activo asignado a este repartidor ────
+  // El tracking se envía por pedido (ubicaciones_repartidores.pedido_id
+  // es UNIQUE), así que se necesita un pedido activo para transmitir.
+  useEffect(() => {
+    if (!userId) return
+
+    const fetchPedidoActivo = async () => {
+      const { data } = await supabase
+        .from('pedidos')
+        .select('id')
+        .eq('repartidor_id', userId)
+        .in('estado', ['confirmado', 'preparando', 'en_camino'])
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      setPedidoId(data?.id ?? null)
+    }
+    fetchPedidoActivo()
+  }, [userId])
+
   // ── Watch GPS cuando activo ───────────────────────────────
   useEffect(() => {
-    if (!activo || !permisoOk || !userId) {
+    if (!activo || !permisoOk || !userId || !pedidoId) {
       locationSub.current?.remove()
       locationSub.current = null
       return
@@ -89,10 +113,10 @@ export default function TrackingScreen() {
           setErrorMsg(null)
 
           const { error } = await supabase
-            .from('tracking_repartidores')
+            .from('ubicaciones_repartidores')
             .upsert(
-              { repartidor_id: userId, lat: newLat, lng: newLng, updated_at: new Date().toISOString() },
-              { onConflict: 'repartidor_id' }
+              { pedido_id: pedidoId, repartidor_id: userId, lat: newLat, lng: newLng, updated_at: new Date().toISOString() },
+              { onConflict: 'pedido_id' }
             )
 
           if (error) {
@@ -111,7 +135,7 @@ export default function TrackingScreen() {
       locationSub.current?.remove()
       locationSub.current = null
     }
-  }, [activo, permisoOk, userId])
+  }, [activo, permisoOk, userId, pedidoId])
 
   // ── Cleanup al desmontar ──────────────────────────────────
   useEffect(() => {
@@ -166,6 +190,16 @@ export default function TrackingScreen() {
         </View>
       )}
 
+      {/* Sin pedido activo */}
+      {permisoOk && !pedidoId && (
+        <View style={styles.alertaBanner}>
+          <Text style={styles.alertaTitle}>⚠️ No tienes un pedido activo</Text>
+          <Text style={styles.alertaText}>
+            El tracking solo puede activarse mientras tienes un pedido asignado (confirmado, preparando o en camino).
+          </Text>
+        </View>
+      )}
+
       {/* Toggle */}
       <View style={styles.card}>
         <View style={styles.toggleRow}>
@@ -183,7 +217,7 @@ export default function TrackingScreen() {
           <Switch
             value={activo}
             onValueChange={toggleTracking}
-            disabled={!permisoOk}
+            disabled={!permisoOk || !pedidoId}
             trackColor={{ false: C.border, true: C.primary + '80' }}
             thumbColor={activo ? C.primary : '#ccc'}
           />

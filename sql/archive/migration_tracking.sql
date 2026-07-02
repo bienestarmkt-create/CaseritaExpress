@@ -1,4 +1,15 @@
 -- ═══════════════════════════════════════════════════════════════════════
+-- ARCHIVADO 2026-07-02 — NO EJECUTAR. NO REFLEJA EL SCHEMA REAL.
+--
+-- Este archivo diseñaba ubicaciones_repartidores con PK = repartidor_id
+-- (una fila por repartidor) y FK a profiles. La tabla real en producción
+-- (proyecto gmfjnzwmfcufgolptaoi) fue creada con el schema de
+-- supabase/migrations/20260524000000_gps_tracking.sql: PK = id, con
+-- pedido_id UNIQUE (una fila por pedido) y FK a usuarios/pedidos.
+-- Se conserva solo como referencia histórica del diseño descartado.
+-- ═══════════════════════════════════════════════════════════════════════
+
+-- ═══════════════════════════════════════════════════════════════════════
 -- MIGRATION: Tracking GPS en tiempo real — CaseritaExpress
 -- Tabla: ubicaciones_repartidores
 -- Descripción: Una fila por repartidor, se actualiza vía UPSERT desde
