@@ -36,6 +36,28 @@ Deno.serve(async (req: Request) => {
       return err(400, 'Parámetros incompletos: pedidoId, comprobante_url, total_esperado requeridos')
     }
 
+    // ── Registrar el intento (cuenta para el límite de reintentos del cliente) ──
+    const { data: pedidoActual, error: fetchErr } = await supabase
+      .from('pedidos')
+      .select('intentos_validacion')
+      .eq('id', pedidoId)
+      .single()
+
+    if (fetchErr || !pedidoActual) {
+      console.error('Error leyendo pedido', pedidoId, fetchErr?.message)
+      return err(404, 'Pedido no encontrado: ' + pedidoId)
+    }
+
+    const { error: intentoErr } = await supabase
+      .from('pedidos')
+      .update({ intentos_validacion: (pedidoActual.intentos_validacion ?? 0) + 1 })
+      .eq('id', pedidoId)
+
+    if (intentoErr) {
+      console.error('Error incrementando intentos_validacion', pedidoId, intentoErr.message)
+      return err(500, 'No se pudo registrar el intento: ' + intentoErr.message)
+    }
+
     const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
     if (!apiKey) return err(500, 'ANTHROPIC_API_KEY no configurada en secrets')
 
@@ -68,10 +90,24 @@ Deno.serve(async (req: Request) => {
     console.log('Respuesta Claude:', JSON.stringify(resultado))
 
     const valido = Boolean(resultado.es_comprobante && resultado.monto_correcto)
-    return json({
-      valido,
-      motivo: valido ? null : (resultado.motivo_rechazo ?? 'Comprobante no válido'),
-    })
+    const motivo = valido ? null : (resultado.motivo_rechazo ?? 'Comprobante no válido')
+
+    // ── Persistir confirmación de pago (service_role) ─────────────
+    // Si esto falla, NO devolvemos valido:true — el cliente vería "aprobado"
+    // sin que el pedido quede realmente confirmado en la base de datos.
+    if (valido) {
+      const { error: confirmErr } = await supabase
+        .from('pedidos')
+        .update({ estado: 'confirmado', estado_pago: 'pagado_qr', comprobante_validado: true })
+        .eq('id', pedidoId)
+
+      if (confirmErr) {
+        console.error('Error confirmando pago del pedido', pedidoId, confirmErr.message)
+        return err(500, 'Comprobante válido pero no se pudo confirmar el pedido: ' + confirmErr.message)
+      }
+    }
+
+    return json({ valido, motivo })
 
   } catch (error: unknown) {
     const e = error instanceof Error ? error : new Error(String(error))

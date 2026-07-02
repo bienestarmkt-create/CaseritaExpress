@@ -19,7 +19,7 @@ Proyecto en C:\Users\HP\CaseritaExpress\
 - Flujo de pago QR con Claude Vision funcionando
 
 ## Reglas duras de código
-- No tocar: flujo QR, validar-comprobante, liquidacion-nocturna
+- Cambios al flujo de pago solo con autorización explícita de Álvaro
 - No tocar: tabla pedidos, usuarios, detalle_pedidos sin avisar
 - Nombre correcto de tabla: ubicaciones_repartidores (plural con s)
 - Supabase project ref: gmfjnzwmfcufgolptaoi

@@ -1,3 +1,8 @@
+// ⚠️ DEPRECADO — flujo de pago viejo (generación anterior, escribe pago_estado).
+// El flujo vigente es app/pago-qr.tsx + supabase/functions/validar-comprobante
+// (escribe estado_pago, columna canónica leída por liquidacion-nocturna).
+// No se migra ni se refactoriza: solo queda sin ruta de acceso activa en la app
+// (ver href:null en app/_layout.tsx). No reactivar sin autorización de Álvaro.
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';

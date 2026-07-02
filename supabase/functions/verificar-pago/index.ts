@@ -1,4 +1,8 @@
 // supabase/functions/verificar-pago/index.ts
+// ⚠️ DEPRECADO — flujo de pago viejo (generación anterior, escribe pago_estado).
+// El flujo vigente es validar-comprobante (escribe estado_pago, columna canónica
+// leída por liquidacion-nocturna). No se migra ni se refactoriza, ni se vuelve a
+// desplegar. No reactivar sin autorización de Álvaro.
 // Supabase Edge Function (Deno) — verifica comprobante de pago con Claude Vision
 //
 // Secrets requeridos (supabase secrets set KEY=value):

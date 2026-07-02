@@ -1,4 +1,8 @@
 // api/pago/verificar.js
+// ⚠️ DEPRECADO — duplicado del flujo de pago viejo (escribe pago_estado).
+// El flujo vigente es supabase/functions/validar-comprobante (escribe estado_pago,
+// columna canónica leída por liquidacion-nocturna). No se migra ni se refactoriza,
+// ni se vuelve a desplegar. No reactivar sin autorización de Álvaro.
 // Vercel serverless function: verifica comprobante de pago con Claude Vision
 // POST { tipos[], ids[], comprobante_url, codigo_esperado, monto_esperado, mime_type? }
 

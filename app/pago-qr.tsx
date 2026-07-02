@@ -93,18 +93,23 @@ export default function PagoQrScreen() {
   async function confirmarPago() {
     if (!imageUri || !pedidoId) return;
 
+    let paso = 'inicio';
+
     try {
       setValidacion('subiendo');
 
+      paso = 'obtener_sesion';
       const { data: { session } } = await supabase.auth.getSession();
       const userId = session?.user?.id;
       if (!userId) throw new Error('No hay sesión activa');
 
       // Descargar imagen como blob y convertir a ArrayBuffer
+      paso = 'descargar_imagen';
       const response = await fetch(imageUri);
       const blob = await response.blob();
       const arrayBuffer = await new Response(blob).arrayBuffer();
 
+      paso = 'subir_comprobante';
       const filePath = `${userId}/${pedidoId}/comprobante_${Date.now()}.jpg`;
       const { error: uploadError } = await supabase.storage
         .from('comprobantes')
@@ -112,6 +117,7 @@ export default function PagoQrScreen() {
 
       if (uploadError) throw new Error('Error al subir imagen: ' + uploadError.message);
 
+      paso = 'guardar_comprobante_url';
       const { data: urlData } = supabase.storage
         .from('comprobantes')
         .getPublicUrl(filePath);
@@ -123,6 +129,10 @@ export default function PagoQrScreen() {
         .eq('id', pedidoId);
 
       // ── Llamar Edge Function de validación ────────────────────
+      // La función es la única que persiste el resultado en `pedidos`
+      // (estado, estado_pago, comprobante_validado). Este cliente solo
+      // muestra el resultado que ella devuelve.
+      paso = 'invocar_validar_comprobante';
       setValidacion('validando');
 
       const { data: resultado, error: fnError } = await supabase.functions.invoke(
@@ -158,6 +168,7 @@ export default function PagoQrScreen() {
         setImageUri(null);
       }
     } catch (error: any) {
+      console.error('[pago-qr] Error en confirmarPago', { paso, pedidoId, error: error?.message });
       const nuevosIntentos = intentos + 1;
       setIntentos(nuevosIntentos);
       setMotivoRechazo('Error: ' + error.message);

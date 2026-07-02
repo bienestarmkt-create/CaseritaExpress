@@ -167,6 +167,7 @@ export default function RootLayout() {
         <Tabs.Screen name="anfitrion"   options={{ href: null }} />
         <Tabs.Screen name="negocio"     options={{ href: null }} />
         <Tabs.Screen name="seguimiento" options={{ href: null }} />
+        {/* pago.tsx deprecado — flujo viejo, ninguna pantalla navega aquí (ver deprecated header en app/pago.tsx). href:null se mantiene para no auto-registrarlo como tab visible. */}
         <Tabs.Screen name="pago"        options={{ href: null }} />
         <Tabs.Screen name="pago-qr"     options={{ href: null }} />
         <Tabs.Screen name="mi-ticket"   options={{ href: null }} />
