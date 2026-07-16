@@ -60,6 +60,24 @@ Deno.serve(async (req: Request) => {
       return err(500, 'El pedido no tiene un total válido registrado')
     }
 
+    // ── Rechazar comprobante reutilizado en otro pedido ya confirmado ──
+    const { data: duplicado, error: duplicadoErr } = await supabase
+      .from('pedidos')
+      .select('id')
+      .eq('comprobante_url', comprobante_url)
+      .neq('id', pedidoId)
+      .eq('comprobante_validado', true)
+      .maybeSingle()
+
+    if (duplicadoErr) {
+      console.error('Error chequeando comprobante duplicado', duplicadoErr.message)
+      return err(500, 'No se pudo verificar el comprobante: ' + duplicadoErr.message)
+    }
+
+    if (duplicado) {
+      return json({ valido: false, motivo: 'Este comprobante ya fue usado para confirmar otro pedido' })
+    }
+
     const { error: intentoErr } = await supabase
       .from('pedidos')
       .update({ intentos_validacion: (pedidoActual.intentos_validacion ?? 0) + 1 })
