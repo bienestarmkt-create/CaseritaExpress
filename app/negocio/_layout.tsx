@@ -65,7 +65,7 @@ export default function NegocioLayout() {
       if (authError || !user) { router.replace('/'); return }
 
       const { data: profile, error: profileError } = await supabase
-        .from('profiles')
+        .from('usuarios')
         .select('rol, nombre')
         .eq('id', user.id)
         .single()
