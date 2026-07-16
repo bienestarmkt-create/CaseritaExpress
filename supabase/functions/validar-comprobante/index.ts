@@ -30,22 +30,34 @@ Deno.serve(async (req: Request) => {
     )
     if (authErr || !user) return err(401, 'Token inválido')
 
-    const { pedidoId, comprobante_url, total_esperado } = await req.json()
+    // total_esperado ya no se lee del body: el monto se recalcula siempre
+    // desde pedidos.total (ver más abajo) para que el cliente no pueda
+    // manipular el monto contra el que se valida el comprobante.
+    const { pedidoId, comprobante_url } = await req.json()
 
-    if (!pedidoId || !comprobante_url || total_esperado == null) {
-      return err(400, 'Parámetros incompletos: pedidoId, comprobante_url, total_esperado requeridos')
+    if (!pedidoId || !comprobante_url) {
+      return err(400, 'Parámetros incompletos: pedidoId, comprobante_url requeridos')
     }
 
-    // ── Registrar el intento (cuenta para el límite de reintentos del cliente) ──
+    // ── Obtener el pedido real: dueño + monto (nunca confiar en el cliente) ──
     const { data: pedidoActual, error: fetchErr } = await supabase
       .from('pedidos')
-      .select('intentos_validacion')
+      .select('intentos_validacion, total, cliente_id')
       .eq('id', pedidoId)
       .single()
 
     if (fetchErr || !pedidoActual) {
       console.error('Error leyendo pedido', pedidoId, fetchErr?.message)
       return err(404, 'Pedido no encontrado: ' + pedidoId)
+    }
+
+    if (pedidoActual.cliente_id !== user.id) {
+      return err(403, 'No autorizado: este pedido no te pertenece')
+    }
+
+    const totalEsperado = Number(pedidoActual.total)
+    if (!totalEsperado || totalEsperado <= 0) {
+      return err(500, 'El pedido no tiene un total válido registrado')
     }
 
     const { error: intentoErr } = await supabase
@@ -85,7 +97,7 @@ Deno.serve(async (req: Request) => {
       apiKey,
       imageBase64,
       mimeType,
-      parseFloat(String(total_esperado)),
+      totalEsperado,
     )
     console.log('Respuesta Claude:', JSON.stringify(resultado))
 
