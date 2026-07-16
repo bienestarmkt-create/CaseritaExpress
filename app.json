@@ -48,6 +48,15 @@
             "backgroundColor": "#000000"
           }
         }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "CaseritaExpress necesita tu ubicación para que el cliente vea el repartidor en tiempo real",
+          "locationWhenInUsePermission": "CaseritaExpress necesita tu ubicación para que el cliente vea el repartidor en tiempo real",
+          "isAndroidBackgroundLocationEnabled": false,
+          "isIosBackgroundLocationEnabled": false
+        }
       ]
     ],
     "experiments": {

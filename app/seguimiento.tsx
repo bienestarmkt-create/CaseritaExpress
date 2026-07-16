@@ -111,7 +111,11 @@ export default function SeguimientoScreen() {
             event: 'UPDATE', schema: 'public', table: 'pedidos',
             filter: `id=eq.${pedidoId}`,
           }, (payload) => actualizarDesdeDB(payload.new))
-          .subscribe();
+          .subscribe((status, err) => {
+            if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+              console.error('[seguimiento] error suscripción pedido:', err ?? status)
+            }
+          });
 
         // Cargar última ubicación conocida del repartidor
         const { data: ubicActual } = await supabase
@@ -133,7 +137,11 @@ export default function SeguimientoScreen() {
               setRepartidorCoords({ lat: Number(d.lat), lng: Number(d.lng) });
             }
           })
-          .subscribe();
+          .subscribe((status, err) => {
+            if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+              console.error('[seguimiento] error suscripción ubicación GPS:', err ?? status)
+            }
+          });
       }
     }
 

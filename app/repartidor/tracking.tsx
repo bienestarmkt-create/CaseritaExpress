@@ -3,11 +3,14 @@
  * ─────────────────────────────────────────────────────────────
  * Panel Repartidor — Tracking GPS
  *
- * - Toggle para activar/desactivar transmisión de ubicación.
+ * - Transmisión de ubicación 100% automática: se activa sola en
+ *   cuanto el repartidor tiene un pedido asignado en estado
+ *   'en_camino', y se detiene sola si deja de estarlo. El switch
+ *   en pantalla es solo un indicador visual, no un control manual.
  * - GPS continuo cada 10 s con expo-location.
  * - Upsert en tabla ubicaciones_repartidores (conflict: pedido_id).
- * - Requiere un pedido activo (confirmado/preparando/en_camino)
- *   asignado al repartidor; sin pedido activo no se transmite.
+ * - Escucha cambios de pedido en tiempo real (Realtime) para
+ *   detectar la transición a 'en_camino' sin recargar la pantalla.
  * - Muestra coordenadas actuales, última actualización, estado.
  * ─────────────────────────────────────────────────────────────
  */
@@ -39,17 +42,21 @@ const C = {
 
 // ─── Componente principal ─────────────────────────────────────
 export default function TrackingScreen() {
-  const [userId,      setUserId]      = useState<string | null>(null)
-  const [pedidoId,    setPedidoId]    = useState<string | null>(null)  // pedido activo asignado
-  const [permisoOk,   setPermisoOk]   = useState<boolean | null>(null)  // null = pendiente
-  const [activo,      setActivo]      = useState(false)
-  const [lat,         setLat]         = useState<number | null>(null)
-  const [lng,         setLng]         = useState<number | null>(null)
-  const [ultimaVez,   setUltimaVez]   = useState<Date | null>(null)
-  const [enviando,    setEnviando]     = useState(false)
-  const [errorMsg,    setErrorMsg]    = useState<string | null>(null)
+  const [userId,       setUserId]       = useState<string | null>(null)
+  const [pedidoId,     setPedidoId]     = useState<string | null>(null)  // pedido activo asignado
+  const [pedidoEstado, setPedidoEstado] = useState<string | null>(null)  // estado del pedido activo
+  const [pedidoError,  setPedidoError]  = useState(false)                // falló la consulta del pedido activo
+  const [permisoOk,    setPermisoOk]    = useState<boolean | null>(null)  // null = pendiente
+  const [lat,          setLat]          = useState<number | null>(null)
+  const [lng,          setLng]          = useState<number | null>(null)
+  const [ultimaVez,    setUltimaVez]    = useState<Date | null>(null)
+  const [enviando,     setEnviando]     = useState(false)
+  const [errorMsg,     setErrorMsg]     = useState<string | null>(null)
 
   const locationSub = useRef<Location.LocationSubscription | null>(null)
+
+  // Transmisión automática: solo depende de tener permiso + pedido 'en_camino'.
+  const activo = permisoOk === true && !!pedidoId && pedidoEstado === 'en_camino'
 
   // ── Obtener usuario y pedir permiso ───────────────────────
   useEffect(() => {
@@ -65,28 +72,68 @@ export default function TrackingScreen() {
 
   // ── Buscar el pedido activo asignado a este repartidor ────
   // El tracking se envía por pedido (ubicaciones_repartidores.pedido_id
-  // es UNIQUE), así que se necesita un pedido activo para transmitir.
+  // es UNIQUE). Se re-consulta ante cualquier cambio en los pedidos del
+  // repartidor (Realtime) para detectar la transición a 'en_camino' sin
+  // que el repartidor tenga que recargar la pantalla.
   useEffect(() => {
     if (!userId) return
 
+    let cancelled = false
+    let retryTimer: ReturnType<typeof setTimeout> | null = null
+
     const fetchPedidoActivo = async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('pedidos')
-        .select('id')
+        .select('id, estado')
         .eq('repartidor_id', userId)
         .in('estado', ['confirmado', 'preparando', 'en_camino'])
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle()
 
+      if (cancelled) return
+
+      if (error) {
+        setPedidoError(true)
+        retryTimer = setTimeout(fetchPedidoActivo, 5000)
+        return
+      }
+
+      setPedidoError(false)
       setPedidoId(data?.id ?? null)
+      setPedidoEstado(data?.estado ?? null)
     }
+
     fetchPedidoActivo()
+
+    const channel = supabase
+      .channel(`repartidor-pedido-activo-${userId}`)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'pedidos',
+        filter: `repartidor_id=eq.${userId}`,
+      }, () => fetchPedidoActivo())
+      .subscribe()
+
+    return () => {
+      cancelled = true
+      if (retryTimer) clearTimeout(retryTimer)
+      supabase.removeChannel(channel)
+    }
   }, [userId])
+
+  // ── Limpiar datos mostrados cuando la transmisión se apaga ─
+  useEffect(() => {
+    if (!activo) {
+      setLat(null)
+      setLng(null)
+      setUltimaVez(null)
+      setErrorMsg(null)
+    }
+  }, [activo])
 
   // ── Watch GPS cuando activo ───────────────────────────────
   useEffect(() => {
-    if (!activo || !permisoOk || !userId || !pedidoId) {
+    if (!activo || !userId || !pedidoId) {
       locationSub.current?.remove()
       locationSub.current = null
       return
@@ -135,7 +182,7 @@ export default function TrackingScreen() {
       locationSub.current?.remove()
       locationSub.current = null
     }
-  }, [activo, permisoOk, userId, pedidoId])
+  }, [activo, userId, pedidoId])
 
   // ── Cleanup al desmontar ──────────────────────────────────
   useEffect(() => {
@@ -143,17 +190,6 @@ export default function TrackingScreen() {
       locationSub.current?.remove()
     }
   }, [])
-
-  // ── Toggle tracking ───────────────────────────────────────
-  const toggleTracking = (value: boolean) => {
-    setActivo(value)
-    if (!value) {
-      setLat(null)
-      setLng(null)
-      setUltimaVez(null)
-      setErrorMsg(null)
-    }
-  }
 
   // ── Permiso pendiente ─────────────────────────────────────
   if (permisoOk === null) {
@@ -190,34 +226,53 @@ export default function TrackingScreen() {
         </View>
       )}
 
-      {/* Sin pedido activo */}
-      {permisoOk && !pedidoId && (
-        <View style={styles.alertaBanner}>
-          <Text style={styles.alertaTitle}>⚠️ No tienes un pedido activo</Text>
-          <Text style={styles.alertaText}>
-            El tracking solo puede activarse mientras tienes un pedido asignado (confirmado, preparando o en camino).
+      {/* Error consultando el pedido activo */}
+      {permisoOk && pedidoError && (
+        <View style={styles.errorBannerBig}>
+          <Text style={styles.errorBannerTitle}>⚠️ Error de conexión, reintentando…</Text>
+          <Text style={styles.errorBannerText}>
+            No se pudo verificar tu pedido activo. Reintentando automáticamente cada 5 segundos.
           </Text>
         </View>
       )}
 
-      {/* Toggle */}
+      {/* Sin pedido activo */}
+      {permisoOk && !pedidoError && !pedidoId && (
+        <View style={styles.alertaBanner}>
+          <Text style={styles.alertaTitle}>⚠️ No tienes un pedido activo</Text>
+          <Text style={styles.alertaText}>
+            El tracking se activará automáticamente en cuanto tengas un pedido asignado en camino.
+          </Text>
+        </View>
+      )}
+
+      {/* Pedido asignado pero aún no en camino */}
+      {permisoOk && !pedidoError && pedidoId && pedidoEstado !== 'en_camino' && (
+        <View style={styles.infoBanner}>
+          <Text style={styles.infoBannerTitle}>🕐 Pedido asignado ({pedidoEstado})</Text>
+          <Text style={styles.infoBannerText}>
+            El tracking se activará automáticamente cuando el pedido pase a "en camino".
+          </Text>
+        </View>
+      )}
+
+      {/* Indicador de transmisión — automático, no editable */}
       <View style={styles.card}>
         <View style={styles.toggleRow}>
           <View style={styles.toggleLeft}>
             <Text style={styles.toggleLabel}>
-              {activo ? '🟢 Tracking activo' : '⚫ Tracking inactivo'}
+              {activo ? '🟢 Transmitiendo ubicación ✅' : '⚫ Transmisión inactiva ❌'}
             </Text>
             <Text style={styles.toggleSub}>
               {activo
-                ? 'Tu posición se envía cada 10 segundos'
-                : 'Activa para compartir tu posición'
+                ? 'Tu posición se envía automáticamente cada 10 segundos'
+                : 'Se activa sola cuando tengas un pedido en camino'
               }
             </Text>
           </View>
           <Switch
             value={activo}
-            onValueChange={toggleTracking}
-            disabled={!permisoOk || !pedidoId}
+            disabled
             trackColor={{ false: C.border, true: C.primary + '80' }}
             thumbColor={activo ? C.primary : '#ccc'}
           />
@@ -276,11 +331,11 @@ export default function TrackingScreen() {
       <View style={styles.infoCard}>
         <Text style={styles.infoTitle}>ℹ️ ¿Cómo funciona?</Text>
         <Text style={styles.infoText}>
-          Cuando el tracking está activo, tu posición GPS se envía automáticamente a la plataforma cada 10 segundos.
-          El administrador y los clientes pueden ver tu ubicación en tiempo real para hacer seguimiento de las entregas.
+          Cuando aceptas un pedido y lo marcas como "en camino", tu posición GPS se envía automáticamente a la plataforma cada 10 segundos.
+          El administrador y el cliente pueden ver tu ubicación en tiempo real para hacer seguimiento de la entrega.
         </Text>
         <Text style={styles.infoText}>
-          Desactiva el tracking cuando termines tu jornada o no estés haciendo entregas.
+          La transmisión se detiene sola cuando entregas el pedido o cambias de estado.
         </Text>
       </View>
     </ScrollView>
@@ -312,7 +367,7 @@ const styles = StyleSheet.create({
   headerSub:   { fontSize: 12, color: C.textLight, marginTop: 2 },
   statusDot:   { width: 10, height: 10, borderRadius: 5 },
 
-  // Alerta
+  // Alerta (permiso denegado / sin pedido)
   alertaBanner: {
     backgroundColor: '#FEF3C7', borderRadius: 10,
     padding: 14, gap: 4,
@@ -320,6 +375,24 @@ const styles = StyleSheet.create({
   },
   alertaTitle: { fontSize: 14, fontWeight: '700', color: '#92400E' },
   alertaText:  { fontSize: 13, color: '#92400E', lineHeight: 18 },
+
+  // Info banner (pedido asignado, aún no en camino)
+  infoBanner: {
+    backgroundColor: '#EFF6FF', borderRadius: 10,
+    padding: 14, gap: 4,
+    borderWidth: 1, borderColor: '#93C5FD',
+  },
+  infoBannerTitle: { fontSize: 14, fontWeight: '700', color: '#1E40AF' },
+  infoBannerText:  { fontSize: 13, color: '#1E40AF', lineHeight: 18 },
+
+  // Error banner grande (fallo consultando el pedido activo)
+  errorBannerBig: {
+    backgroundColor: '#FEE2E2', borderRadius: 10,
+    padding: 14, gap: 4,
+    borderWidth: 1, borderColor: '#EF4444',
+  },
+  errorBannerTitle: { fontSize: 14, fontWeight: '700', color: '#991B1B' },
+  errorBannerText:  { fontSize: 13, color: '#991B1B', lineHeight: 18 },
 
   // Cards
   card: {
@@ -330,7 +403,7 @@ const styles = StyleSheet.create({
   },
   cardTitle: { fontSize: 14, fontWeight: '700', color: C.text },
 
-  // Toggle
+  // Toggle (indicador)
   toggleRow:  { flexDirection: 'row', alignItems: 'center', gap: 12 },
   toggleLeft: { flex: 1 },
   toggleLabel:{ fontSize: 15, fontWeight: '600', color: C.text },
