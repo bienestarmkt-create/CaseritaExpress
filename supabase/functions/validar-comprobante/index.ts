@@ -60,11 +60,20 @@ Deno.serve(async (req: Request) => {
       return err(500, 'El pedido no tiene un total válido registrado')
     }
 
+    // El cliente manda el path de storage (comprobante_url acá), pero
+    // pedidos.comprobante_url guarda la URL pública (ver app/pago-qr.tsx).
+    // Normalizamos al mismo formato para que el chequeo de duplicados
+    // realmente pueda encontrar coincidencias.
+    const { data: urlData } = supabase.storage
+      .from('comprobantes')
+      .getPublicUrl(comprobante_url)
+    const comprobanteUrlPublica = urlData.publicUrl
+
     // ── Rechazar comprobante reutilizado en otro pedido ya confirmado ──
     const { data: duplicado, error: duplicadoErr } = await supabase
       .from('pedidos')
       .select('id')
-      .eq('comprobante_url', comprobante_url)
+      .eq('comprobante_url', comprobanteUrlPublica)
       .neq('id', pedidoId)
       .eq('comprobante_validado', true)
       .maybeSingle()
@@ -107,8 +116,10 @@ Deno.serve(async (req: Request) => {
     console.log('Imagen descargada, tamaño:', arrayBuffer.byteLength)
 
     const imageBase64 = toBase64(arrayBuffer)
-    const ext = filePath.split('.').pop()?.toLowerCase() ?? 'jpg'
-    const mimeType = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg'
+    // El cliente siempre nombra el archivo "*.jpg" sin importar el formato
+    // real (ver app/pago-qr.tsx), así que la extensión no sirve para
+    // detectar el media type. Se detecta por los magic bytes del archivo.
+    const mimeType = detectarMimeType(new Uint8Array(arrayBuffer))
 
     console.log('Llamando Claude Vision...')
     const resultado = await verificarConClaude(
@@ -145,6 +156,22 @@ Deno.serve(async (req: Request) => {
     return err(500, e.message)
   }
 })
+
+function detectarMimeType(bytes: Uint8Array): string {
+  // PNG: 89 50 4E 47
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
+    return 'image/png'
+  }
+  // WEBP: "RIFF" ... "WEBP"
+  if (
+    bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+    bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50
+  ) {
+    return 'image/webp'
+  }
+  // JPEG: FF D8 FF (y fallback si no matchea ningún magic byte conocido)
+  return 'image/jpeg'
+}
 
 function toBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer)
