@@ -30,6 +30,9 @@ const PASOS_PEDIDO = [
   { estado: 'entregado',      label: 'Pedido entregado',     emoji: '🎉',   descripcion: '¡Disfruta tu pedido!' },
 ] as const;
 
+// BACKLOG post-piloto: reemplazar por datos reales del repartidor asignado
+// (nombre/foto/vehículo ya existen en `usuarios`; rating real vía
+// v_promedios_repartidores, igual que en app/repartidor/pedidos.tsx).
 const REPARTIDOR_DEFAULT = {
   nombre: 'Repartidor CaseritaExpress',
   emoji: '🏍️',
@@ -41,6 +44,8 @@ const REPARTIDOR_DEFAULT = {
   verificado: true,
 };
 
+// BACKLOG post-piloto: el chat es una simulación local (auto-respuesta fake
+// en enviarMensaje) — no persiste en DB ni llega al repartidor real.
 const MENSAJES_INICIALES = [
   { id: 1, tipo: 'sistema',     texto: 'Chat iniciado con Carlos Mamani',               hora: '14:48' },
   { id: 2, tipo: 'repartidor',  texto: '¡Hola! Ya recogí tu pedido, voy en camino 🛵',  hora: '14:48' },
