@@ -4,6 +4,7 @@
 //
 // Secrets requeridos:
 //   ANTHROPIC_API_KEY
+//   CUENTA_DESTINO_VALIDA — número de cuenta BancoSol al que debe llegar el pago
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -100,6 +101,9 @@ Deno.serve(async (req: Request) => {
     const apiKey = Deno.env.get('ANTHROPIC_API_KEY')
     if (!apiKey) return err(500, 'ANTHROPIC_API_KEY no configurada en secrets')
 
+    const cuentaDestinoValida = Deno.env.get('CUENTA_DESTINO_VALIDA')
+    if (!cuentaDestinoValida) return err(500, 'CUENTA_DESTINO_VALIDA no configurada en secrets')
+
     const filePath = comprobante_url as string
     console.log('Descargando imagen desde path:', filePath)
 
@@ -130,8 +134,52 @@ Deno.serve(async (req: Request) => {
     )
     console.log('Respuesta Claude:', JSON.stringify(resultado))
 
-    const valido = Boolean(resultado.es_comprobante && resultado.monto_correcto)
-    const motivo = valido ? null : (resultado.motivo_rechazo ?? 'Comprobante no válido')
+    const numeroTransaccion = typeof resultado.numero_transaccion === 'string'
+      ? resultado.numero_transaccion.trim() || null
+      : null
+    const cuentaDestino = typeof resultado.cuenta_destino === 'string'
+      ? resultado.cuenta_destino.trim()
+      : null
+
+    let valido = Boolean(resultado.es_comprobante && resultado.monto_correcto)
+    let motivo: string | null = valido
+      ? null
+      : ((resultado.motivo_rechazo as string | null) ?? 'Comprobante no válido')
+
+    // Sin número de transacción no podemos chequear reutilización más
+    // adelante — mejor falso rechazo que dejar pasar un fraude.
+    if (valido && !numeroTransaccion) {
+      valido = false
+      motivo = 'Comprobante ilegible, subí una captura más nítida'
+    }
+
+    if (valido && cuentaDestino !== cuentaDestinoValida) {
+      valido = false
+      motivo = 'La cuenta destino del comprobante no coincide con la cuenta de CaseritaExpress'
+    }
+
+    // ── Rechazar transacción bancaria reutilizada en otro pedido ──
+    // Detecta comprobantes resubidos (URL nueva, misma transferencia),
+    // que el chequeo por comprobante_url no puede detectar.
+    if (valido) {
+      const { data: dupTransaccion, error: dupTxErr } = await supabase
+        .from('pedidos')
+        .select('id')
+        .eq('numero_transaccion', numeroTransaccion)
+        .neq('id', pedidoId)
+        .eq('comprobante_validado', true)
+        .maybeSingle()
+
+      if (dupTxErr) {
+        console.error('Error chequeando transacción duplicada', dupTxErr.message)
+        return err(500, 'No se pudo verificar el comprobante: ' + dupTxErr.message)
+      }
+
+      if (dupTransaccion) {
+        valido = false
+        motivo = 'Este comprobante ya fue utilizado'
+      }
+    }
 
     // ── Persistir confirmación de pago (service_role) ─────────────
     // Si esto falla, NO devolvemos valido:true — el cliente vería "aprobado"
@@ -139,11 +187,21 @@ Deno.serve(async (req: Request) => {
     if (valido) {
       const { error: confirmErr } = await supabase
         .from('pedidos')
-        .update({ estado: 'confirmado', estado_pago: 'pagado_qr', comprobante_validado: true })
+        .update({
+          estado: 'confirmado',
+          estado_pago: 'pagado_qr',
+          comprobante_validado: true,
+          numero_transaccion: numeroTransaccion,
+        })
         .eq('id', pedidoId)
 
       if (confirmErr) {
         console.error('Error confirmando pago del pedido', pedidoId, confirmErr.message)
+        // Índice único de numero_transaccion saltó por una carrera entre
+        // dos requests casi simultáneos validando la misma transacción.
+        if (confirmErr.code === '23505') {
+          return json({ valido: false, motivo: 'Este comprobante ya fue utilizado' })
+        }
         return err(500, 'Comprobante válido pero no se pudo confirmar el pedido: ' + confirmErr.message)
       }
     }
@@ -195,6 +253,9 @@ Responde SOLO JSON sin texto extra:
   "es_comprobante": boolean,
   "monto_detectado": number | null,
   "monto_correcto": boolean,
+  "numero_transaccion": string | null,
+  "cuenta_destino": string | null,
+  "titular_destino": string | null,
   "motivo_rechazo": string | null
 }
 
@@ -202,6 +263,9 @@ Reglas:
 - es_comprobante: true si es pantalla real de confirmación de transferencia bancaria boliviana (BancoSol ALTOKE, Mercantil Santa Cruz, BNB, Banco Union, Tigo Money u otro banco boliviano)
 - monto_detectado: número exacto que aparece en el comprobante
 - monto_correcto: true si monto_detectado está entre ${totalEsperado - 1} y ${totalEsperado + 1}
+- numero_transaccion: el número que aparece como "Transacción N°" (o equivalente: N° de operación, N° de comprobante, referencia). Copialo tal cual aparece en la imagen. null si no se puede leer con certeza.
+- cuenta_destino: el número de cuenta destino de la transferencia, tal cual aparece en la imagen. null si no se puede leer con certeza.
+- titular_destino: nombre del titular de la cuenta destino, si aparece en la imagen. null si no aparece.
 - motivo_rechazo: null si aprobado. Si rechazado: razón específica (ej: "El monto Bs. 1 no coincide con Bs. ${totalEsperado} requerido", "La imagen no es un comprobante bancario")`
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
