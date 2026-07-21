@@ -6,6 +6,13 @@ import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TextInpu
 import { supabase } from '../lib/supabase';
 import { BrandColors } from '../constants/theme';
 
+const VEHICULO_LABEL: Record<'moto' | 'bicicleta' | 'auto' | 'a pie', string> = {
+  moto:      '🏍️ Moto',
+  bicicleta: '🚲 Bici',
+  auto:      '🚗 Auto',
+  'a pie':   '🚶 A pie',
+};
+
 const getEstadoColor = (estado: string) => {
   if (estado === 'Entregado' || estado === 'Completado' || estado === 'entregado') return '#10B981';
   if (estado === 'Próximo' || estado === 'pendiente') return '#F97316';
@@ -287,13 +294,13 @@ export default function PerfilScreen() {
             <Text style={styles.datoCardTitle}>Vehículo</Text>
             <Text style={styles.fieldLabel}>Tipo de vehículo</Text>
             <View style={styles.vehiculoRow}>
-              {(['moto', 'bicicleta', 'a pie'] as const).map(tipo => (
+              {(['moto', 'bicicleta', 'auto', 'a pie'] as const).map(tipo => (
                 <TouchableOpacity
                   key={tipo}
                   style={[styles.vehiculoBtn, perfilForm.vehiculo_tipo === tipo && styles.vehiculoBtnActivo]}
                   onPress={() => setPerfilForm(p => ({ ...p, vehiculo_tipo: tipo }))}>
                   <Text style={[styles.vehiculoBtnText, perfilForm.vehiculo_tipo === tipo && styles.vehiculoBtnTextActivo]}>
-                    {tipo === 'moto' ? '🏍️ Moto' : tipo === 'bicicleta' ? '🚲 Bici' : '🚶 A pie'}
+                    {VEHICULO_LABEL[tipo]}
                   </Text>
                 </TouchableOpacity>
               ))}
