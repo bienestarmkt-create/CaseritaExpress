@@ -6,17 +6,28 @@ import MapaRepartidor from '../components/MapaRepartidor';
 import StarRating from '../components/StarRating';
 import { supabase } from '../lib/supabase';
 
-// ─── ESTADO → ÍNDICE ─────────────────────────────────────
-function estadoAIndice(estado: string): number {
-  const map: Record<string, number> = {
-    pendiente: 1,
-    confirmado: 2,
-    en_camino: 3,
-    entregado: 5,
-    cancelado: 1,
-  };
-  return map[estado] ?? 1;
+// ─── ESTADO REAL DE pedidos.estado ───────────────────────
+// Orden real usado en app/negocio/pedidos.tsx, app/repartidor/pedidos.tsx y
+// app/admin/pedidos.tsx. No todos los pasos se alcanzan siempre — el negocio
+// puede pasar directo de "confirmado" a "listo" sin pasar por
+// "en_preparacion" — por eso el ranking es solo para saber qué ya quedó
+// atrás, no una promesa de que cada paso individual ocurrió.
+const ORDEN_ESTADOS = [
+  'pendiente', 'confirmado', 'asignado', 'en_preparacion', 'listo', 'en_camino', 'entregado',
+] as const;
+
+function rangoEstado(estado: string | undefined): number {
+  const i = ORDEN_ESTADOS.indexOf(estado as typeof ORDEN_ESTADOS[number]);
+  return i === -1 ? 0 : i;
 }
+
+const PASOS_PEDIDO = [
+  { estado: 'confirmado',     label: 'Pedido confirmado',    emoji: '✅',   descripcion: 'Tu pago fue validado' },
+  { estado: 'en_preparacion', label: 'Preparando tu pedido', emoji: '👨‍🍳', descripcion: 'El negocio está preparando tu pedido' },
+  { estado: 'listo',          label: 'Pedido listo',         emoji: '📦',   descripcion: 'Listo para que lo recoja el repartidor' },
+  { estado: 'en_camino',      label: 'Repartidor en camino', emoji: '🏍️',  descripcion: 'Tu pedido va en camino' },
+  { estado: 'entregado',      label: 'Pedido entregado',     emoji: '🎉',   descripcion: '¡Disfruta tu pedido!' },
+] as const;
 
 const REPARTIDOR_DEFAULT = {
   nombre: 'Repartidor CaseritaExpress',
@@ -28,14 +39,6 @@ const REPARTIDOR_DEFAULT = {
   placa: '2341-BJK',
   verificado: true,
 };
-
-const ESTADOS_PEDIDO = [
-  { id: 1, label: 'Pedido confirmado',     emoji: '✅', descripcion: 'Tu pedido fue recibido',           completado: true,  hora: '14:32' },
-  { id: 2, label: 'Preparando tu pedido',  emoji: '👨‍🍳', descripcion: 'El restaurante está cocinando',   completado: true,  hora: '14:35' },
-  { id: 3, label: 'Repartidor en camino',  emoji: '🏍️', descripcion: 'Carlos recogió tu pedido',        completado: true,  hora: '14:48' },
-  { id: 4, label: 'Llegando a tu puerta',  emoji: '📍', descripcion: 'A pocos minutos de tu ubicación', completado: false, hora: '--:--' },
-  { id: 5, label: 'Pedido entregado',      emoji: '🎉', descripcion: '¡Disfruta tu pedido!',            completado: false, hora: '--:--' },
-];
 
 const MENSAJES_INICIALES = [
   { id: 1, tipo: 'sistema',     texto: 'Chat iniciado con Carlos Mamani',               hora: '14:48' },
@@ -57,8 +60,6 @@ export default function SeguimientoScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ pedidoId?: string }>();
   const [tabActiva, setTabActiva] = useState<'seguimiento' | 'repartidor' | 'chat' | 'pedido'>('seguimiento');
-  const [tiempoRestante, setTiempoRestante] = useState(8);
-  const [estadoActual, setEstadoActual] = useState(3);
   const [mensajes, setMensajes] = useState(MENSAJES_INICIALES);
   const [pedidoEntregado, setPedidoEntregado] = useState(false);
   const [modalCalificar, setModalCalificar] = useState(false);
@@ -150,11 +151,8 @@ export default function SeguimientoScreen() {
       if (data.destino_lat && data.destino_lng) {
         setDestinoCoords({ lat: Number(data.destino_lat), lng: Number(data.destino_lng) });
       }
-      const idx = estadoAIndice(data.estado);
-      setEstadoActual(idx);
       if (data.estado === 'entregado') {
         setPedidoEntregado(true);
-        setTiempoRestante(0);
 
         // ── Verificar si ya calificó este pedido ──────────────
         const { data: { user } } = await supabase.auth.getUser();
@@ -295,12 +293,6 @@ export default function SeguimientoScreen() {
             {pedidoEntregado ? '🎉 ¡Pedido entregado!' : '🏍️ Pedido en camino'}
           </Text>
           <Text style={s.headerNumero}>{PEDIDO.numero} • {PEDIDO.fecha}</Text>
-          {!pedidoEntregado && (
-            <View style={s.tiempoBox}>
-              <Text style={s.tiempoNum}>{tiempoRestante}</Text>
-              <Text style={s.tiempoLabel}>min aprox.</Text>
-            </View>
-          )}
           {pedidoEntregado && (
             <View style={s.entregadoTag}>
               <Text style={s.entregadoText}>✅ Entregado exitosamente</Text>
@@ -340,31 +332,39 @@ export default function SeguimientoScreen() {
               <MapaRepartidor coords={repartidorCoords} destinoCoords={destinoCoords} />
             </View>
 
-            {/* Línea de estados */}
+            {/* Línea de estados — refleja exclusivamente pedidos.estado */}
             <View style={s.estadosCard}>
               <Text style={s.estadosTitle}>📋 Estado del pedido</Text>
-              {ESTADOS_PEDIDO.map((est, i) => {
-                const completado = est.completado || i + 1 < estadoActual;
-                const activo = i + 1 === estadoActual;
-                return (
-                  <View key={est.id} style={s.estadoFila}>
-                    <View style={s.estadoIzq}>
-                      <View style={[s.estadoCirculo, completado && s.circuloOk, activo && s.circuloActivo]}>
-                        <Text style={s.circuloEmoji}>{completado ? '✓' : activo ? est.emoji : '○'}</Text>
+              {pedidoReal?.estado === 'cancelado' ? (
+                <Text style={s.estadoDesc}>❌ Este pedido fue cancelado</Text>
+              ) : (
+                (() => {
+                  const rangoActual = rangoEstado(pedidoReal?.estado);
+                  return PASOS_PEDIDO.map((paso, i) => {
+                    const rangoPaso = rangoEstado(paso.estado);
+                    const completado = rangoActual > rangoPaso;
+                    const activo = rangoActual === rangoPaso;
+                    return (
+                      <View key={paso.estado} style={s.estadoFila}>
+                        <View style={s.estadoIzq}>
+                          <View style={[s.estadoCirculo, completado && s.circuloOk, activo && s.circuloActivo]}>
+                            <Text style={s.circuloEmoji}>{completado ? '✓' : activo ? paso.emoji : '○'}</Text>
+                          </View>
+                          {i < PASOS_PEDIDO.length - 1 && (
+                            <View style={[s.estadoLinea, completado && s.lineaOk]} />
+                          )}
+                        </View>
+                        <View style={s.estadoDer}>
+                          <Text style={[s.estadoLabel, completado && s.labelOk, activo && s.labelActivo]}>
+                            {paso.label}
+                          </Text>
+                          {activo && <Text style={s.estadoDesc}>{paso.descripcion}</Text>}
+                        </View>
                       </View>
-                      {i < ESTADOS_PEDIDO.length - 1 && (
-                        <View style={[s.estadoLinea, completado && s.lineaOk]} />
-                      )}
-                    </View>
-                    <View style={s.estadoDer}>
-                      <Text style={[s.estadoLabel, completado && s.labelOk, activo && s.labelActivo]}>
-                        {est.label}
-                      </Text>
-                      <Text style={s.estadoDesc}>{activo ? est.descripcion : est.hora}</Text>
-                    </View>
-                  </View>
-                );
-              })}
+                    );
+                  });
+                })()
+              )}
             </View>
 
             {/* Dirección */}
@@ -646,9 +646,6 @@ const s = StyleSheet.create({
   headerContent:        { alignItems: 'center' },
   headerTitle:          { fontSize: 22, fontWeight: '800', color: '#FFF', marginBottom: 4 },
   headerNumero:         { fontSize: 12, color: 'rgba(255,255,255,0.7)', marginBottom: 12 },
-  tiempoBox:            { backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 20, paddingHorizontal: 32, paddingVertical: 12, alignItems: 'center' },
-  tiempoNum:            { fontSize: 40, fontWeight: '800', color: '#FFF', lineHeight: 44 },
-  tiempoLabel:          { fontSize: 12, color: 'rgba(255,255,255,0.8)' },
   entregadoTag:         { backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 20, paddingVertical: 8, borderRadius: 20 },
   entregadoText:        { color: '#FFF', fontWeight: '700', fontSize: 14 },
   tabsBar:              { flexDirection: 'row', backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#F3F4F6', elevation: 2 },
