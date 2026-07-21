@@ -85,14 +85,18 @@ export default function PedidosScreen() {
   const router = useRouter()
 
   const [pedidos,      setPedidos]      = useState<Pedido[]>([])
+  const [disponibles,  setDisponibles]  = useState<Pedido[]>([])
   const [loading,      setLoading]      = useState(true)
   const [refreshing,   setRefreshing]   = useState(false)
   const [updatingId,   setUpdatingId]   = useState<string | null>(null)
+  const [tomandoId,    setTomandoId]    = useState<string | null>(null)
+  const [avisoTomado,  setAvisoTomado]  = useState<string | null>(null)
   const [userId,       setUserId]       = useState<string | null>(null)
   const [miPromedio,   setMiPromedio]   = useState<{ promedio: number; total_ratings: number } | null>(null)
   const channelRef = useRef<RealtimeChannel | null>(null)
+  const disponiblesChannelRef = useRef<RealtimeChannel | null>(null)
 
-  // ── Cargar pedidos ────────────────────────────────────────
+  // ── Cargar pedidos propios ────────────────────────────────
   const fetchPedidos = useCallback(async (uid?: string) => {
     const targetId = uid ?? userId
     if (!targetId) return
@@ -109,6 +113,20 @@ export default function PedidosScreen() {
     }
   }, [userId])
 
+  // ── Cargar pool de pedidos sin repartidor asignado ────────
+  const fetchDisponibles = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('pedidos')
+      .select('id, estado, total, direccion, created_at, usuarios!cliente_id(nombre), negocios(nombre)')
+      .is('repartidor_id', null)
+      .eq('estado', 'confirmado')
+      .order('created_at', { ascending: false })
+
+    if (!error && data) {
+      setDisponibles(data as unknown as Pedido[])
+    }
+  }, [])
+
   // ── Inicialización ────────────────────────────────────────
   useEffect(() => {
     let mounted = true
@@ -119,6 +137,7 @@ export default function PedidosScreen() {
 
       setUserId(user.id)
       await fetchPedidos(user.id)
+      await fetchDisponibles()
 
       // Cargar promedio propio del repartidor
       const { data: prom } = await supabase
@@ -146,20 +165,62 @@ export default function PedidosScreen() {
         .subscribe()
 
       channelRef.current = ch
+
+      // Realtime del pool — sin filtro: un pedido nuevo confirmado tiene
+      // que aparecer, y uno que otro repartidor toma tiene que desaparecer
+      // (mismo patrón sin filtro que usa app/admin/pedidos.tsx).
+      const chDisponibles = supabase
+        .channel('repartidor-disponibles')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'pedidos' },
+          () => { fetchDisponibles() }
+        )
+        .subscribe()
+
+      disponiblesChannelRef.current = chDisponibles
     }
 
     init()
     return () => {
       mounted = false
       channelRef.current?.unsubscribe()
+      disponiblesChannelRef.current?.unsubscribe()
     }
   }, [])   // solo al montar
 
   // ── Pull to refresh ───────────────────────────────────────
   const onRefresh = async () => {
     setRefreshing(true)
-    await fetchPedidos()
+    await Promise.all([fetchPedidos(), fetchDisponibles()])
     setRefreshing(false)
+  }
+
+  // ── Tomar un pedido del pool ───────────────────────────────
+  const tomarPedido = async (pedido: Pedido) => {
+    if (!userId) return
+    setTomandoId(pedido.id)
+
+    // .is('repartidor_id', null) es la protección contra carrera: si otro
+    // repartidor ya lo tomó, esta condición ya no matchea ninguna fila.
+    const { data, error } = await supabase
+      .from('pedidos')
+      .update({ repartidor_id: userId, estado: 'asignado' })
+      .eq('id', pedido.id)
+      .is('repartidor_id', null)
+      .select('id')
+
+    if (error) {
+      console.error('[repartidor/pedidos] Error al tomar pedido', pedido.id, error.message)
+    } else if (!data || data.length === 0) {
+      setAvisoTomado('Este pedido ya fue tomado')
+      setTimeout(() => setAvisoTomado(null), 3000)
+    } else {
+      notificarCambioEstado(pedido.id, 'asignado').catch(() => {})
+    }
+
+    setTomandoId(null)
+    await Promise.all([fetchDisponibles(), fetchPedidos(userId)])
   }
 
   // ── Cambiar estado ────────────────────────────────────────
@@ -264,6 +325,47 @@ export default function PedidosScreen() {
     )
   }
 
+  // ── Render tarjeta disponible ──────────────────────────────
+  const renderDisponible = (item: Pedido) => {
+    const isTomando = tomandoId === item.id
+
+    return (
+      <View key={item.id} style={styles.card}>
+        <View style={styles.cardHeader}>
+          <View style={styles.cardHeaderLeft}>
+            <Text style={styles.cardNegocio}>
+              🏪 {item.negocios?.nombre ?? 'Negocio'}
+            </Text>
+            <Text style={styles.cardCliente}>
+              👤 {item.usuarios?.nombre ?? 'Cliente'}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.cardDir}>
+          <Text style={styles.cardDirIcon}>📍</Text>
+          <Text style={styles.cardDirText} numberOfLines={2}>{item.direccion}</Text>
+        </View>
+
+        <Text style={styles.cardTotal}>Bs {Number(item.total).toFixed(2)}</Text>
+
+        <View style={styles.cardActions}>
+          <TouchableOpacity
+            style={[styles.btnAccion, isTomando && styles.btnDisabled]}
+            onPress={() => tomarPedido(item)}
+            disabled={isTomando}
+            activeOpacity={0.7}
+          >
+            {isTomando
+              ? <ActivityIndicator size="small" color="#fff" />
+              : <Text style={styles.btnAccionText}>Tomar pedido</Text>
+            }
+          </TouchableOpacity>
+        </View>
+      </View>
+    )
+  }
+
   // ── Loading ───────────────────────────────────────────────
   if (loading) {
     return (
@@ -309,6 +411,25 @@ export default function PedidosScreen() {
           </View>
           <Text style={styles.bannerArrow}>›</Text>
         </TouchableOpacity>
+      )}
+
+      {/* Aviso de carrera perdida (otro repartidor tomó el pedido) */}
+      {avisoTomado && (
+        <View style={styles.avisoBox}>
+          <Text style={styles.avisoText}>⚠️ {avisoTomado}</Text>
+        </View>
+      )}
+
+      {/* Pool de pedidos sin repartidor asignado */}
+      <Text style={styles.sectionTitle}>
+        Pedidos disponibles ({disponibles.length})
+      </Text>
+      {disponibles.length === 0 ? (
+        <Text style={styles.disponiblesEmpty}>Sin pedidos disponibles por ahora</Text>
+      ) : (
+        <View style={styles.disponiblesList}>
+          {disponibles.map(renderDisponible)}
+        </View>
       )}
 
       <Text style={styles.sectionTitle}>
@@ -403,6 +524,15 @@ const styles = StyleSheet.create({
     fontSize: 13, fontWeight: '600', color: C.textLight,
     letterSpacing: 0.5, marginBottom: 8, textTransform: 'uppercase',
   },
+
+  // Pool de pedidos disponibles
+  disponiblesList:  { gap: 12, marginBottom: 16 },
+  disponiblesEmpty: { fontSize: 13, color: C.textLight, marginBottom: 16 },
+  avisoBox: {
+    backgroundColor: C.warning + '20', borderRadius: 10,
+    padding: 12, marginBottom: 12,
+  },
+  avisoText: { fontSize: 13, color: C.warning, fontWeight: '600' },
 
   // Tarjeta
   card: {

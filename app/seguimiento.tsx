@@ -23,6 +23,7 @@ function rangoEstado(estado: string | undefined): number {
 
 const PASOS_PEDIDO = [
   { estado: 'confirmado',     label: 'Pedido confirmado',    emoji: '✅',   descripcion: 'Tu pago fue validado' },
+  { estado: 'asignado',       label: 'Repartidor asignado',  emoji: '🏍️',  descripcion: 'Un repartidor tomó tu pedido' },
   { estado: 'en_preparacion', label: 'Preparando tu pedido', emoji: '👨‍🍳', descripcion: 'El negocio está preparando tu pedido' },
   { estado: 'listo',          label: 'Pedido listo',         emoji: '📦',   descripcion: 'Listo para que lo recoja el repartidor' },
   { estado: 'en_camino',      label: 'Repartidor en camino', emoji: '🏍️',  descripcion: 'Tu pedido va en camino' },
