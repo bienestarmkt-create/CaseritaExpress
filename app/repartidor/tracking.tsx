@@ -27,6 +27,7 @@ import {
 } from 'react-native'
 import * as Location from 'expo-location'
 import { supabase } from '../../lib/supabase'
+import { watchPositionWeb, type GeoErrorTipo, type GeoSubscription } from '../../lib/geolocationWeb'
 
 // ─── Tema ─────────────────────────────────────────────────────
 const C = {
@@ -46,26 +47,36 @@ export default function TrackingScreen() {
   const [pedidoId,     setPedidoId]     = useState<string | null>(null)  // pedido activo asignado
   const [pedidoEstado, setPedidoEstado] = useState<string | null>(null)  // estado del pedido activo
   const [pedidoError,  setPedidoError]  = useState(false)                // falló la consulta del pedido activo
-  const [permisoOk,    setPermisoOk]    = useState<boolean | null>(null)  // null = pendiente
+  // En web no hay paso previo de "pedir permiso": expo-location en web puede
+  // devolver 'denied' sin que el navegador llegue a mostrar el popup real.
+  // navigator.geolocation.watchPosition() es lo que realmente lo dispara, así
+  // que en web arrancamos optimistas (true) y dejamos que el propio intento
+  // de watch confirme o desmienta el permiso.
+  const [permisoOk,    setPermisoOk]    = useState<boolean | null>(Platform.OS === 'web' ? true : null)
+  const [gpsError,     setGpsError]     = useState<{ tipo: GeoErrorTipo; mensaje: string } | null>(null)
   const [lat,          setLat]          = useState<number | null>(null)
   const [lng,          setLng]          = useState<number | null>(null)
   const [ultimaVez,    setUltimaVez]    = useState<Date | null>(null)
   const [enviando,     setEnviando]     = useState(false)
   const [errorMsg,     setErrorMsg]     = useState<string | null>(null)
 
-  const locationSub = useRef<Location.LocationSubscription | null>(null)
+  const locationSub = useRef<Location.LocationSubscription | GeoSubscription | null>(null)
 
   // Transmisión automática: solo depende de tener permiso + pedido 'en_camino'.
   const activo = permisoOk === true && !!pedidoId && pedidoEstado === 'en_camino'
 
-  // ── Obtener usuario y pedir permiso ───────────────────────
+  // ── Obtener usuario y pedir permiso (solo native) ──────────
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (user) setUserId(user.id)
 
-      const { status } = await Location.requestForegroundPermissionsAsync()
-      setPermisoOk(status === 'granted')
+      if (Platform.OS !== 'web') {
+        const { status } = await Location.requestForegroundPermissionsAsync()
+        setPermisoOk(status === 'granted')
+      }
+      // En web el permiso se pide implícitamente al arrancar el watch más
+      // abajo, no acá (ver comentario en el useState de permisoOk).
     }
     init()
   }, [])
@@ -128,10 +139,14 @@ export default function TrackingScreen() {
       setLng(null)
       setUltimaVez(null)
       setErrorMsg(null)
+      setGpsError(null)
     }
   }, [activo])
 
   // ── Watch GPS cuando activo ───────────────────────────────
+  // Native: expo-location, sin cambios. Web: navigator.geolocation directo
+  // (ver lib/geolocationWeb.ts) — es lo único que dispara el popup real del
+  // navegador; expo-location en web puede resolver a 'denied' sin mostrarlo.
   useEffect(() => {
     if (!activo || !userId || !pedidoId) {
       locationSub.current?.remove()
@@ -141,6 +156,50 @@ export default function TrackingScreen() {
 
     let mounted = true
 
+    const enviarUbicacion = async (newLat: number, newLng: number) => {
+      if (!mounted) return
+
+      setLat(newLat)
+      setLng(newLng)
+      setEnviando(true)
+      setErrorMsg(null)
+
+      const { error } = await supabase
+        .from('ubicaciones_repartidores')
+        .upsert(
+          { pedido_id: pedidoId, repartidor_id: userId, lat: newLat, lng: newLng, updated_at: new Date().toISOString() },
+          { onConflict: 'pedido_id' }
+        )
+
+      if (error) {
+        setErrorMsg(`Error al enviar: ${error.message}`)
+      } else {
+        setUltimaVez(new Date())
+      }
+
+      setEnviando(false)
+    }
+
+    if (Platform.OS === 'web') {
+      locationSub.current = watchPositionWeb(
+        ({ lat: newLat, lng: newLng }) => {
+          if (!mounted) return
+          setGpsError(null)
+          enviarUbicacion(newLat, newLng)
+        },
+        (tipo, mensaje) => {
+          if (!mounted) return
+          setGpsError({ tipo, mensaje })
+          if (tipo === 'denied') setPermisoOk(false)
+        },
+      )
+      return () => {
+        mounted = false
+        locationSub.current?.remove()
+        locationSub.current = null
+      }
+    }
+
     ;(async () => {
       locationSub.current = await Location.watchPositionAsync(
         {
@@ -148,32 +207,7 @@ export default function TrackingScreen() {
           timeInterval:     10_000,   // 10 s
           distanceInterval: 0,        // siempre emite por tiempo
         },
-        async loc => {
-          if (!mounted) return
-
-          const newLat = loc.coords.latitude
-          const newLng = loc.coords.longitude
-
-          setLat(newLat)
-          setLng(newLng)
-          setEnviando(true)
-          setErrorMsg(null)
-
-          const { error } = await supabase
-            .from('ubicaciones_repartidores')
-            .upsert(
-              { pedido_id: pedidoId, repartidor_id: userId, lat: newLat, lng: newLng, updated_at: new Date().toISOString() },
-              { onConflict: 'pedido_id' }
-            )
-
-          if (error) {
-            setErrorMsg(`Error al enviar: ${error.message}`)
-          } else {
-            setUltimaVez(new Date())
-          }
-
-          setEnviando(false)
-        }
+        loc => enviarUbicacion(loc.coords.latitude, loc.coords.longitude)
       )
     })()
 
@@ -221,8 +255,18 @@ export default function TrackingScreen() {
         <View style={styles.alertaBanner}>
           <Text style={styles.alertaTitle}>⚠️ Permiso de ubicación denegado</Text>
           <Text style={styles.alertaText}>
-            Debes conceder permiso de ubicación en los ajustes del dispositivo para poder activar el tracking.
+            {Platform.OS === 'web'
+              ? 'Tocá el ícono de candado/información junto a la URL del navegador y habilitá el permiso de ubicación para este sitio.'
+              : 'Debes conceder permiso de ubicación en los ajustes del dispositivo para poder activar el tracking.'}
           </Text>
+        </View>
+      )}
+
+      {/* GPS sin señal o tiempo agotado (no es un problema de permiso) */}
+      {permisoOk && gpsError && gpsError.tipo !== 'denied' && (
+        <View style={styles.errorBannerBig}>
+          <Text style={styles.errorBannerTitle}>⚠️ Problema obteniendo tu ubicación</Text>
+          <Text style={styles.errorBannerText}>{gpsError.mensaje}</Text>
         </View>
       )}
 

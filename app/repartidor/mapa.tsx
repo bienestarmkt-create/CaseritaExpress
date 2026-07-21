@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ActivityIndicator,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -23,6 +24,7 @@ import {
 import * as Location from 'expo-location'
 import { useRouter } from 'expo-router'
 import { supabase } from '../../lib/supabase'
+import { watchPositionWeb, type GeoErrorTipo, type GeoSubscription } from '../../lib/geolocationWeb'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 
 // MapaRepartidor se importa por platform (native / web)
@@ -63,7 +65,13 @@ export default function MapaScreen() {
   const [pedido,       setPedido]       = useState<PedidoActivo | null>(null)
   const [errorPedido,  setErrorPedido]  = useState<string | null>(null)
   const [miCoords,     setMiCoords]     = useState<Coords | null>(null)
-  const [permisoOk,    setPermisoOk]    = useState(false)
+  // En web no hay paso previo de "pedir permiso": expo-location en web puede
+  // devolver 'denied' sin que el navegador llegue a mostrar el popup real.
+  // navigator.geolocation.watchPosition() es lo que realmente lo dispara, así
+  // que en web arrancamos optimistas y dejamos que el propio watch confirme
+  // o desmienta el permiso (ver efecto de "Watch GPS" más abajo).
+  const [permisoOk,    setPermisoOk]    = useState(Platform.OS === 'web')
+  const [gpsError,     setGpsError]     = useState<{ tipo: GeoErrorTipo; mensaje: string } | null>(null)
   const [updatingId,   setUpdatingId]   = useState<string | null>(null)
   const [userId,       setUserId]       = useState<string | null>(null)
 
@@ -76,11 +84,12 @@ export default function MapaScreen() {
     ])
   }
 
-  const locationSub = useRef<Location.LocationSubscription | null>(null)
+  const locationSub = useRef<Location.LocationSubscription | GeoSubscription | null>(null)
   const channelRef  = useRef<RealtimeChannel | null>(null)
 
-  // ── Pedir permiso GPS ────────────────────────────────────
+  // ── Pedir permiso GPS (solo native) ───────────────────────
   useEffect(() => {
+    if (Platform.OS === 'web') return
     ;(async () => {
       const { status } = await Location.requestForegroundPermissionsAsync()
       setPermisoOk(status === 'granted')
@@ -159,8 +168,28 @@ export default function MapaScreen() {
   }, [reintentos])
 
   // ── Watch GPS ─────────────────────────────────────────────
+  // Native: expo-location, sin cambios. Web: navigator.geolocation directo
+  // (ver lib/geolocationWeb.ts) — es lo único que dispara el popup real del
+  // navegador; expo-location en web puede resolver a 'denied' sin mostrarlo.
   useEffect(() => {
     if (!permisoOk) return
+
+    if (Platform.OS === 'web') {
+      locationSub.current = watchPositionWeb(
+        ({ lat, lng }) => {
+          setGpsError(null)
+          setMiCoords({ lat, lng })
+        },
+        (tipo, mensaje) => {
+          setGpsError({ tipo, mensaje })
+          if (tipo === 'denied') setPermisoOk(false)
+        },
+      )
+      return () => {
+        locationSub.current?.remove()
+        locationSub.current = null
+      }
+    }
 
     ;(async () => {
       locationSub.current = await Location.watchPositionAsync(
@@ -288,7 +317,17 @@ export default function MapaScreen() {
         <View style={styles.alertaBanner}>
           <Text style={styles.alertaText}>
             ⚠️ Permiso de ubicación denegado. El mapa no puede rastrear tu posición.
+            {Platform.OS === 'web'
+              ? ' Tocá el ícono de candado/información junto a la URL del navegador y habilitá el permiso de ubicación para este sitio.'
+              : ''}
           </Text>
+        </View>
+      )}
+
+      {/* GPS sin señal o tiempo agotado (no es un problema de permiso) */}
+      {permisoOk && gpsError && gpsError.tipo !== 'denied' && (
+        <View style={styles.alertaBanner}>
+          <Text style={styles.alertaText}>⚠️ {gpsError.mensaje}</Text>
         </View>
       )}
 
