@@ -31,13 +31,13 @@ import type { RealtimeChannel } from '@supabase/supabase-js'
 
 // ─── Tipos ────────────────────────────────────────────────────
 type Pedido = {
-  id:           string
-  estado:       'asignado' | 'confirmado' | 'en_camino' | 'entregado' | 'cancelado'
-  total:        number
-  direccion:    string
-  created_at:   string
-  usuarios:     { nombre: string } | null   // cliente
-  negocios:     { nombre: string } | null
+  id:                 string
+  estado:             'asignado' | 'confirmado' | 'en_camino' | 'entregado' | 'cancelado'
+  total:              number
+  direccion_entrega:  string
+  created_at:         string
+  usuarios:           { nombre: string } | null   // cliente
+  negocios:           { nombre: string } | null
 }
 
 // ─── Tema ─────────────────────────────────────────────────────
@@ -95,6 +95,8 @@ export default function PedidosScreen() {
   const [avisoTomado,  setAvisoTomado]  = useState<string | null>(null)
   const [userId,       setUserId]       = useState<string | null>(null)
   const [miPromedio,   setMiPromedio]   = useState<{ promedio: number; total_ratings: number } | null>(null)
+  const [errorMisPedidos,   setErrorMisPedidos]   = useState<string | null>(null)
+  const [errorDisponibles, setErrorDisponibles]   = useState<string | null>(null)
   const channelRef = useRef<RealtimeChannel | null>(null)
   const disponiblesChannelRef = useRef<RealtimeChannel | null>(null)
 
@@ -114,28 +116,38 @@ export default function PedidosScreen() {
 
     const { data, error } = await supabase
       .from('pedidos')
-      .select('id, estado, total, direccion, created_at, usuarios!cliente_id(nombre), negocios(nombre)')
+      .select('id, estado, total, direccion_entrega, created_at, usuarios!cliente_id(nombre), negocios(nombre)')
       .eq('repartidor_id', targetId)
       .in('estado', ['asignado', 'confirmado', 'en_camino'])
       .order('created_at', { ascending: false })
 
-    if (!error && data) {
-      setPedidos(data as unknown as Pedido[])
+    if (error) {
+      console.error('[repartidor/pedidos] Error cargando mis pedidos', error.message)
+      setErrorMisPedidos('No se pudieron cargar tus pedidos. Revisá tu conexión.')
+      return
     }
+
+    setErrorMisPedidos(null)
+    setPedidos(data as unknown as Pedido[])
   }, [userId])
 
   // ── Cargar pool de pedidos sin repartidor asignado ────────
   const fetchDisponibles = useCallback(async () => {
     const { data, error } = await supabase
       .from('pedidos')
-      .select('id, estado, total, direccion, created_at, usuarios!cliente_id(nombre), negocios(nombre)')
+      .select('id, estado, total, direccion_entrega, created_at, usuarios!cliente_id(nombre), negocios(nombre)')
       .is('repartidor_id', null)
       .eq('estado', 'confirmado')
       .order('created_at', { ascending: false })
 
-    if (!error && data) {
-      setDisponibles(data as unknown as Pedido[])
+    if (error) {
+      console.error('[repartidor/pedidos] Error cargando pedidos disponibles', error.message)
+      setErrorDisponibles('No se pudieron cargar los pedidos disponibles. Revisá tu conexión.')
+      return
     }
+
+    setErrorDisponibles(null)
+    setDisponibles(data as unknown as Pedido[])
   }, [])
 
   // ── Inicialización ────────────────────────────────────────
@@ -307,7 +319,7 @@ export default function PedidosScreen() {
         {/* Dirección */}
         <View style={styles.cardDir}>
           <Text style={styles.cardDirIcon}>📍</Text>
-          <Text style={styles.cardDirText} numberOfLines={2}>{item.direccion}</Text>
+          <Text style={styles.cardDirText} numberOfLines={2}>{item.direccion_entrega}</Text>
         </View>
 
         {/* Total */}
@@ -364,7 +376,7 @@ export default function PedidosScreen() {
 
         <View style={styles.cardDir}>
           <Text style={styles.cardDirIcon}>📍</Text>
-          <Text style={styles.cardDirText} numberOfLines={2}>{item.direccion}</Text>
+          <Text style={styles.cardDirText} numberOfLines={2}>{item.direccion_entrega}</Text>
         </View>
 
         <Text style={styles.cardTotal}>Bs {Number(item.total).toFixed(2)}</Text>
@@ -445,7 +457,7 @@ export default function PedidosScreen() {
           <Text style={styles.bannerIcon}>🏍️</Text>
           <View style={styles.bannerBody}>
             <Text style={styles.bannerTitle}>¡Entrega en curso!</Text>
-            <Text style={styles.bannerSub} numberOfLines={1}>{enCamino.direccion}</Text>
+            <Text style={styles.bannerSub} numberOfLines={1}>{enCamino.direccion_entrega}</Text>
           </View>
           <Text style={styles.bannerArrow}>›</Text>
         </TouchableOpacity>
@@ -462,7 +474,11 @@ export default function PedidosScreen() {
       <Text style={styles.sectionTitle}>
         Pedidos disponibles ({disponibles.length})
       </Text>
-      {disponibles.length === 0 ? (
+      {errorDisponibles ? (
+        <TouchableOpacity style={styles.avisoBox} onPress={() => fetchDisponibles()} activeOpacity={0.7}>
+          <Text style={styles.avisoText}>⚠️ {errorDisponibles} Tocá para reintentar.</Text>
+        </TouchableOpacity>
+      ) : disponibles.length === 0 ? (
         <Text style={styles.disponiblesEmpty}>Sin pedidos disponibles por ahora</Text>
       ) : (
         <View style={styles.disponiblesList}>
@@ -473,6 +489,15 @@ export default function PedidosScreen() {
       <Text style={styles.sectionTitle}>
         Mis pedidos activos ({pedidos.length})
       </Text>
+      {errorMisPedidos && (
+        <TouchableOpacity
+          style={styles.avisoBox}
+          onPress={() => fetchPedidos(userId ?? undefined)}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.avisoText}>⚠️ {errorMisPedidos} Tocá para reintentar.</Text>
+        </TouchableOpacity>
+      )}
     </View>
   )
 

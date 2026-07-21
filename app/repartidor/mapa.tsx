@@ -32,13 +32,13 @@ import MapaRepartidor from '../../components/MapaRepartidor'
 type Coords = { lat: number; lng: number }
 
 type PedidoActivo = {
-  id:          string
-  direccion:   string
-  total:       number
-  destino_lat: number | null
-  destino_lng: number | null
-  usuarios:    { nombre: string } | null
-  negocios:    { nombre: string } | null
+  id:                string
+  direccion_entrega: string
+  total:             number
+  destino_lat:       number | null
+  destino_lng:       number | null
+  usuarios:          { nombre: string } | null
+  negocios:          { nombre: string } | null
 }
 
 // ─── Tema ─────────────────────────────────────────────────────
@@ -61,6 +61,7 @@ export default function MapaScreen() {
   const [loadError,    setLoadError]    = useState(false)
   const [reintentos,   setReintentos]   = useState(0)
   const [pedido,       setPedido]       = useState<PedidoActivo | null>(null)
+  const [errorPedido,  setErrorPedido]  = useState<string | null>(null)
   const [miCoords,     setMiCoords]     = useState<Coords | null>(null)
   const [permisoOk,    setPermisoOk]    = useState(false)
   const [updatingId,   setUpdatingId]   = useState<string | null>(null)
@@ -93,16 +94,21 @@ export default function MapaScreen() {
 
     const { data, error } = await supabase
       .from('pedidos')
-      .select('id, direccion, total, destino_lat, destino_lng, usuarios!cliente_id(nombre), negocios(nombre)')
+      .select('id, direccion_entrega, total, destino_lat, destino_lng, usuarios!cliente_id(nombre), negocios(nombre)')
       .eq('repartidor_id', targetId)
       .eq('estado', 'en_camino')
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle()
 
-    if (!error) {
-      setPedido(data as unknown as PedidoActivo | null)
+    if (error) {
+      console.error('[repartidor/mapa] Error cargando pedido activo', error.message)
+      setErrorPedido('No se pudo cargar tu entrega activa. Revisá tu conexión.')
+      return
     }
+
+    setErrorPedido(null)
+    setPedido(data as unknown as PedidoActivo | null)
   }, [userId])
 
   // ── Inicialización ────────────────────────────────────────
@@ -228,6 +234,26 @@ export default function MapaScreen() {
 
   // ── Sin pedido en camino ──────────────────────────────────
   if (!pedido) {
+    // Distingue "no tenés entregas" de "no pudimos verificar si tenés" —
+    // sin esto, un error de query silencioso se ve idéntico a no tener
+    // ninguna entrega asignada.
+    if (errorPedido) {
+      return (
+        <View style={styles.centered}>
+          <Text style={styles.emptyIcon}>⚠️</Text>
+          <Text style={styles.emptyTitle}>No pudimos verificar tu entrega</Text>
+          <Text style={styles.emptySub}>{errorPedido}</Text>
+          <TouchableOpacity
+            style={styles.retryBtn}
+            onPress={() => fetchPedido()}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.retryBtnText}>🔄 Reintentar</Text>
+          </TouchableOpacity>
+        </View>
+      )
+    }
+
     return (
       <View style={styles.centered}>
         <Text style={styles.emptyIcon}>🗺️</Text>
@@ -281,7 +307,7 @@ export default function MapaScreen() {
 
         <View style={styles.cardRow}>
           <Text style={styles.cardDirIcon}>📍</Text>
-          <Text style={styles.cardDir}>{pedido.direccion}</Text>
+          <Text style={styles.cardDir}>{pedido.direccion_entrega}</Text>
         </View>
 
         <Text style={styles.cardTotal}>Total: Bs {Number(pedido.total).toFixed(2)}</Text>
