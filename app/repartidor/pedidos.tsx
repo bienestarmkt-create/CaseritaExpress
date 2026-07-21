@@ -87,6 +87,8 @@ export default function PedidosScreen() {
   const [pedidos,      setPedidos]      = useState<Pedido[]>([])
   const [disponibles,  setDisponibles]  = useState<Pedido[]>([])
   const [loading,      setLoading]      = useState(true)
+  const [loadError,    setLoadError]    = useState(false)
+  const [reintentos,   setReintentos]   = useState(0)
   const [refreshing,   setRefreshing]   = useState(false)
   const [updatingId,   setUpdatingId]   = useState<string | null>(null)
   const [tomandoId,    setTomandoId]    = useState<string | null>(null)
@@ -95,6 +97,15 @@ export default function PedidosScreen() {
   const [miPromedio,   setMiPromedio]   = useState<{ promedio: number; total_ratings: number } | null>(null)
   const channelRef = useRef<RealtimeChannel | null>(null)
   const disponiblesChannelRef = useRef<RealtimeChannel | null>(null)
+
+  // Evita que un await cuelgue para siempre cuando la red se queda muda
+  // (mismo patrón que app/index.tsx).
+  const conTimeout = <T,>(promesa: PromiseLike<T>, ms: number): Promise<T> => {
+    return Promise.race([
+      promesa,
+      new Promise<T>((_, reject) => setTimeout(() => reject(new Error('Tiempo de espera agotado')), ms)),
+    ])
+  }
 
   // ── Cargar pedidos propios ────────────────────────────────
   const fetchPedidos = useCallback(async (uid?: string) => {
@@ -132,53 +143,62 @@ export default function PedidosScreen() {
     let mounted = true
 
     const init = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user || !mounted) return
+      setLoading(true)
+      setLoadError(false)
 
-      setUserId(user.id)
-      await fetchPedidos(user.id)
-      await fetchDisponibles()
+      try {
+        const { data: { user } } = await conTimeout(supabase.auth.getUser(), 8000)
+        if (!mounted) return
+        if (!user) throw new Error('Sin sesión activa')
 
-      // Cargar promedio propio del repartidor
-      const { data: prom } = await supabase
-        .from('v_promedios_repartidores')
-        .select('promedio, total_ratings')
-        .eq('repartidor_id', user.id)
-        .maybeSingle()
-      if (prom) setMiPromedio({ promedio: Number(prom.promedio), total_ratings: Number(prom.total_ratings) })
+        setUserId(user.id)
+        await conTimeout(Promise.all([fetchPedidos(user.id), fetchDisponibles()]), 8000)
+        if (!mounted) return
 
-      setLoading(false)
+        // Cargar promedio propio del repartidor
+        const { data: prom } = await supabase
+          .from('v_promedios_repartidores')
+          .select('promedio, total_ratings')
+          .eq('repartidor_id', user.id)
+          .maybeSingle()
+        if (prom) setMiPromedio({ promedio: Number(prom.promedio), total_ratings: Number(prom.total_ratings) })
 
-      // Realtime
-      const ch = supabase
-        .channel(`repartidor-pedidos-${user.id}`)
-        .on(
-          'postgres_changes',
-          {
-            event:  '*',
-            schema: 'public',
-            table:  'pedidos',
-            filter: `repartidor_id=eq.${user.id}`,
-          },
-          () => { fetchPedidos(user.id) }
-        )
-        .subscribe()
+        // Realtime
+        const ch = supabase
+          .channel(`repartidor-pedidos-${user.id}`)
+          .on(
+            'postgres_changes',
+            {
+              event:  '*',
+              schema: 'public',
+              table:  'pedidos',
+              filter: `repartidor_id=eq.${user.id}`,
+            },
+            () => { fetchPedidos(user.id) }
+          )
+          .subscribe()
 
-      channelRef.current = ch
+        channelRef.current = ch
 
-      // Realtime del pool — sin filtro: un pedido nuevo confirmado tiene
-      // que aparecer, y uno que otro repartidor toma tiene que desaparecer
-      // (mismo patrón sin filtro que usa app/admin/pedidos.tsx).
-      const chDisponibles = supabase
-        .channel('repartidor-disponibles')
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'pedidos' },
-          () => { fetchDisponibles() }
-        )
-        .subscribe()
+        // Realtime del pool — sin filtro: un pedido nuevo confirmado tiene
+        // que aparecer, y uno que otro repartidor toma tiene que desaparecer
+        // (mismo patrón sin filtro que usa app/admin/pedidos.tsx).
+        const chDisponibles = supabase
+          .channel('repartidor-disponibles')
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'pedidos' },
+            () => { fetchDisponibles() }
+          )
+          .subscribe()
 
-      disponiblesChannelRef.current = chDisponibles
+        disponiblesChannelRef.current = chDisponibles
+      } catch (e) {
+        console.error('[repartidor/pedidos] Error al inicializar', e)
+        if (mounted) setLoadError(true)
+      } finally {
+        if (mounted) setLoading(false)
+      }
     }
 
     init()
@@ -187,7 +207,7 @@ export default function PedidosScreen() {
       channelRef.current?.unsubscribe()
       disponiblesChannelRef.current?.unsubscribe()
     }
-  }, [])   // solo al montar
+  }, [reintentos])   // reintentos fuerza un nuevo init() al tocar "Reintentar"
 
   // ── Pull to refresh ───────────────────────────────────────
   const onRefresh = async () => {
@@ -372,6 +392,24 @@ export default function PedidosScreen() {
       <View style={styles.centered}>
         <ActivityIndicator size="large" color={C.primary} />
         <Text style={styles.loadingText}>Cargando pedidos…</Text>
+      </View>
+    )
+  }
+
+  // ── Error de carga ────────────────────────────────────────
+  if (loadError) {
+    return (
+      <View style={styles.centered}>
+        <Text style={styles.emptyIcon}>⚠️</Text>
+        <Text style={styles.emptyTitle}>No pudimos cargar tus pedidos</Text>
+        <Text style={styles.emptySub}>Revisá tu conexión e intentá de nuevo</Text>
+        <TouchableOpacity
+          style={styles.retryBtn}
+          onPress={() => setReintentos(n => n + 1)}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.retryBtnText}>🔄 Reintentar</Text>
+        </TouchableOpacity>
       </View>
     )
   }
@@ -590,4 +628,10 @@ const styles = StyleSheet.create({
     fontSize: 13, color: C.textLight, textAlign: 'center',
     maxWidth: 260, lineHeight: 20,
   },
+
+  retryBtn: {
+    marginTop: 8, paddingVertical: 12, paddingHorizontal: 28,
+    backgroundColor: C.primary, borderRadius: 12,
+  },
+  retryBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
 })

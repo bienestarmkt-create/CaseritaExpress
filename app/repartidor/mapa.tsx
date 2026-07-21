@@ -58,11 +58,22 @@ export default function MapaScreen() {
   const router = useRouter()
 
   const [loading,      setLoading]      = useState(true)
+  const [loadError,    setLoadError]    = useState(false)
+  const [reintentos,   setReintentos]   = useState(0)
   const [pedido,       setPedido]       = useState<PedidoActivo | null>(null)
   const [miCoords,     setMiCoords]     = useState<Coords | null>(null)
   const [permisoOk,    setPermisoOk]    = useState(false)
   const [updatingId,   setUpdatingId]   = useState<string | null>(null)
   const [userId,       setUserId]       = useState<string | null>(null)
+
+  // Evita que un await cuelgue para siempre cuando la red se queda muda
+  // (mismo patrón que app/index.tsx).
+  const conTimeout = <T,>(promesa: PromiseLike<T>, ms: number): Promise<T> => {
+    return Promise.race([
+      promesa,
+      new Promise<T>((_, reject) => setTimeout(() => reject(new Error('Tiempo de espera agotado')), ms)),
+    ])
+  }
 
   const locationSub = useRef<Location.LocationSubscription | null>(null)
   const channelRef  = useRef<RealtimeChannel | null>(null)
@@ -99,28 +110,39 @@ export default function MapaScreen() {
     let mounted = true
 
     const init = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user || !mounted) return
+      setLoading(true)
+      setLoadError(false)
 
-      setUserId(user.id)
-      await fetchPedido(user.id)
-      setLoading(false)
+      try {
+        const { data: { user } } = await conTimeout(supabase.auth.getUser(), 8000)
+        if (!mounted) return
+        if (!user) throw new Error('Sin sesión activa')
 
-      // Realtime — re-fetch si cambia estado del pedido
-      const ch = supabase
-        .channel(`repartidor-mapa-${user.id}`)
-        .on(
-          'postgres_changes',
-          {
-            event:  '*',
-            schema: 'public',
-            table:  'pedidos',
-            filter: `repartidor_id=eq.${user.id}`,
-          },
-          () => { fetchPedido(user.id) }
-        )
-        .subscribe()
-      channelRef.current = ch
+        setUserId(user.id)
+        await conTimeout(fetchPedido(user.id), 8000)
+        if (!mounted) return
+
+        // Realtime — re-fetch si cambia estado del pedido
+        const ch = supabase
+          .channel(`repartidor-mapa-${user.id}`)
+          .on(
+            'postgres_changes',
+            {
+              event:  '*',
+              schema: 'public',
+              table:  'pedidos',
+              filter: `repartidor_id=eq.${user.id}`,
+            },
+            () => { fetchPedido(user.id) }
+          )
+          .subscribe()
+        channelRef.current = ch
+      } catch (e) {
+        console.error('[repartidor/mapa] Error al inicializar', e)
+        if (mounted) setLoadError(true)
+      } finally {
+        if (mounted) setLoading(false)
+      }
     }
 
     init()
@@ -128,7 +150,7 @@ export default function MapaScreen() {
       mounted = false
       channelRef.current?.unsubscribe()
     }
-  }, [])
+  }, [reintentos])
 
   // ── Watch GPS ─────────────────────────────────────────────
   useEffect(() => {
@@ -182,6 +204,24 @@ export default function MapaScreen() {
       <View style={styles.centered}>
         <ActivityIndicator size="large" color={C.primary} />
         <Text style={styles.loadingText}>Cargando mapa…</Text>
+      </View>
+    )
+  }
+
+  // ── Error de carga ────────────────────────────────────────
+  if (loadError) {
+    return (
+      <View style={styles.centered}>
+        <Text style={styles.emptyIcon}>⚠️</Text>
+        <Text style={styles.emptyTitle}>No pudimos cargar el mapa</Text>
+        <Text style={styles.emptySub}>Revisá tu conexión e intentá de nuevo</Text>
+        <TouchableOpacity
+          style={styles.retryBtn}
+          onPress={() => setReintentos(n => n + 1)}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.retryBtnText}>🔄 Reintentar</Text>
+        </TouchableOpacity>
       </View>
     )
   }
@@ -295,6 +335,12 @@ const styles = StyleSheet.create({
     backgroundColor: C.primary, borderRadius: 12,
   },
   btnVolverText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+
+  retryBtn: {
+    marginTop: 8, paddingVertical: 12, paddingHorizontal: 28,
+    backgroundColor: C.primary, borderRadius: 12,
+  },
+  retryBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
 
   mapaWrapper: {
     borderRadius: 14, overflow: 'hidden',
