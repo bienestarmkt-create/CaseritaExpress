@@ -331,10 +331,24 @@ export default function SeguimientoScreen() {
         {/* ── TAB: MAPA / SEGUIMIENTO ─────────────────── */}
         {tabActiva === 'seguimiento' && (
           <View>
-            {/* Mapa GPS — componente con Platform check interno */}
-            <View style={s.mapaBox}>
-              <MapaRepartidor coords={repartidorCoords} destinoCoords={destinoCoords} />
-            </View>
+            {/* Mapa GPS — componente con Platform check interno.
+                Sin ubicación real todavía: nunca mostrar el grid decorativo
+                fijo del componente, mostrar el estado real de espera. */}
+            {repartidorCoords ? (
+              <View style={s.mapaBox}>
+                <MapaRepartidor coords={repartidorCoords} destinoCoords={destinoCoords} />
+              </View>
+            ) : (
+              <View style={[s.mapaBox, s.mapaEsperando]}>
+                <Text style={s.mapaEsperandoEmoji}>📡</Text>
+                <Text style={s.mapaEsperandoTexto}>Esperando señal del repartidor</Text>
+                <Text style={s.mapaEsperandoSub}>
+                  {pedidoReal?.repartidor_id
+                    ? 'El mapa se activará en cuanto el repartidor empiece a transmitir su ubicación.'
+                    : 'El mapa se activará cuando se asigne un repartidor a tu pedido.'}
+                </Text>
+              </View>
+            )}
 
             {/* Línea de estados — refleja exclusivamente pedidos.estado */}
             <View style={s.estadosCard}>
@@ -653,6 +667,10 @@ const s = StyleSheet.create({
   tabLabelActivo:       { color: '#F97316', fontWeight: '700' },
   body:                 { flex: 1 },
   mapaBox:              { margin: 16, borderRadius: 20, overflow: 'hidden', elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.12, shadowRadius: 10 },
+  mapaEsperando:        { height: 230, backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 24 },
+  mapaEsperandoEmoji:   { fontSize: 40 },
+  mapaEsperandoTexto:   { fontSize: 14, fontWeight: '700', color: '#1E0A3C' },
+  mapaEsperandoSub:     { fontSize: 12, color: '#6B7280', textAlign: 'center' },
   estadosCard:          { marginHorizontal: 16, marginTop: 0, backgroundColor: '#FFF', borderRadius: 20, padding: 20, elevation: 2 },
   estadosTitle:         { fontSize: 15, fontWeight: '700', color: '#1E0A3C', marginBottom: 16 },
   estadoFila:           { flexDirection: 'row' },

@@ -23,6 +23,7 @@ import {
   StyleSheet,
   Switch,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native'
 import * as Location from 'expo-location'
@@ -61,6 +62,19 @@ export default function TrackingScreen() {
   const [errorMsg,     setErrorMsg]     = useState<string | null>(null)
 
   const locationSub = useRef<Location.LocationSubscription | GeoSubscription | null>(null)
+  // Apunta siempre a la última versión de enviarUbicacion (definida dentro
+  // del efecto de abajo, con pedidoId/userId ya cerrados) para poder
+  // reintentar manualmente desde el botón sin duplicar la lógica de envío.
+  const enviarUbicacionRef = useRef<((lat: number, lng: number) => Promise<void>) | null>(null)
+
+  // Evita que el upsert cuelgue para siempre cuando la red se queda muda
+  // (mismo patrón que app/repartidor/mapa.tsx).
+  const conTimeout = <T,>(promesa: PromiseLike<T>, ms: number): Promise<T> => {
+    return Promise.race([
+      promesa,
+      new Promise<T>((_, reject) => setTimeout(() => reject(new Error('Tiempo de espera agotado')), ms)),
+    ])
+  }
 
   // Transmisión automática: solo depende de tener permiso + pedido 'en_camino'.
   const activo = permisoOk === true && !!pedidoId && pedidoEstado === 'en_camino'
@@ -149,6 +163,7 @@ export default function TrackingScreen() {
   // navegador; expo-location en web puede resolver a 'denied' sin mostrarlo.
   useEffect(() => {
     if (!activo || !userId || !pedidoId) {
+      enviarUbicacionRef.current = null
       locationSub.current?.remove()
       locationSub.current = null
       return
@@ -164,21 +179,30 @@ export default function TrackingScreen() {
       setEnviando(true)
       setErrorMsg(null)
 
-      const { error } = await supabase
-        .from('ubicaciones_repartidores')
-        .upsert(
-          { pedido_id: pedidoId, repartidor_id: userId, lat: newLat, lng: newLng, updated_at: new Date().toISOString() },
-          { onConflict: 'pedido_id' }
+      try {
+        const { error } = await conTimeout(
+          supabase
+            .from('ubicaciones_repartidores')
+            .upsert(
+              { pedido_id: pedidoId, repartidor_id: userId, lat: newLat, lng: newLng, updated_at: new Date().toISOString() },
+              { onConflict: 'pedido_id' }
+            ),
+          8000
         )
 
-      if (error) {
-        setErrorMsg(`Error al enviar: ${error.message}`)
-      } else {
-        setUltimaVez(new Date())
+        if (error) {
+          setErrorMsg(`Error al enviar: ${error.message}`)
+        } else {
+          setUltimaVez(new Date())
+        }
+      } catch {
+        setErrorMsg('Tiempo de espera agotado enviando tu ubicación. Revisá tu conexión.')
       }
 
-      setEnviando(false)
+      if (mounted) setEnviando(false)
     }
+
+    enviarUbicacionRef.current = enviarUbicacion
 
     if (Platform.OS === 'web') {
       locationSub.current = watchPositionWeb(
@@ -195,6 +219,7 @@ export default function TrackingScreen() {
       )
       return () => {
         mounted = false
+        enviarUbicacionRef.current = null
         locationSub.current?.remove()
         locationSub.current = null
       }
@@ -213,6 +238,7 @@ export default function TrackingScreen() {
 
     return () => {
       mounted = false
+      enviarUbicacionRef.current = null
       locationSub.current?.remove()
       locationSub.current = null
     }
@@ -224,6 +250,11 @@ export default function TrackingScreen() {
       locationSub.current?.remove()
     }
   }, [])
+
+  // ── Reintentar envío manualmente tras un error/timeout ────
+  const reintentarEnvio = () => {
+    if (lat != null && lng != null) enviarUbicacionRef.current?.(lat, lng)
+  }
 
   // ── Permiso pendiente ─────────────────────────────────────
   if (permisoOk === null) {
@@ -366,6 +397,9 @@ export default function TrackingScreen() {
           {errorMsg && (
             <View style={styles.errorBanner}>
               <Text style={styles.errorText}>{errorMsg}</Text>
+              <TouchableOpacity onPress={reintentarEnvio} style={styles.retryBtnSmall} activeOpacity={0.7}>
+                <Text style={styles.retryBtnSmallText}>🔄 Reintentar envío</Text>
+              </TouchableOpacity>
             </View>
           )}
         </View>
@@ -482,6 +516,12 @@ const styles = StyleSheet.create({
     padding: 10, borderWidth: 1, borderColor: C.danger,
   },
   errorText: { fontSize: 12, color: '#991B1B' },
+  retryBtnSmall: {
+    marginTop: 8, alignSelf: 'flex-start',
+    paddingVertical: 6, paddingHorizontal: 12,
+    backgroundColor: C.danger, borderRadius: 8,
+  },
+  retryBtnSmallText: { fontSize: 12, fontWeight: '700', color: '#fff' },
 
   // Info
   infoCard: {
