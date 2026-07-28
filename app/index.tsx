@@ -146,14 +146,6 @@ export default function HomeScreen() {
           <Text style={styles.brandName}>Caserita Express</Text>
           <Text style={styles.tagline}>Delivery • Stay • Eventos en Bolivia</Text>
 
-          <Animated.View style={[styles.statsRow, { opacity: fadeAnim }]}>
-            <View style={styles.stat}><Text style={styles.statNum}>150+</Text><Text style={styles.statLabel}>Aliados</Text></View>
-            <View style={styles.statDivider} />
-            <View style={styles.stat}><Text style={styles.statNum}>4.8★</Text><Text style={styles.statLabel}>Rating</Text></View>
-            <View style={styles.statDivider} />
-            <View style={styles.stat}><Text style={styles.statNum}>3</Text><Text style={styles.statLabel}>Ciudades</Text></View>
-          </Animated.View>
-
           {userInfo ? (
             <TouchableOpacity onPress={() => router.push('/perfil')} style={styles.profileBtn}>
               {userInfo.avatarUrl ? (
@@ -245,11 +237,6 @@ const styles = StyleSheet.create({
   logoImage: { width: 110, height: 110, borderRadius: 55, marginBottom: 12, borderWidth: 3, borderColor: 'rgba(255,255,255,0.3)' },
   brandName: { fontSize: 32, fontWeight: '800', color: '#FFF', textAlign: 'center' },
   tagline: { fontSize: 14, color: BrandColors.onPrimaryMuted, marginTop: 8, textAlign: 'center' },
-  statsRow: { flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 16, padding: 16, marginTop: 24, alignItems: 'center' },
-  stat: { alignItems: 'center', flex: 1 },
-  statNum: { fontSize: 18, fontWeight: '800', color: '#FFF' },
-  statLabel: { fontSize: 11, color: BrandColors.onPrimaryMuted, marginTop: 2 },
-  statDivider: { width: 1, backgroundColor: 'rgba(255,255,255,0.2)' },
   section: { padding: 24 },
   sectionTitle: { fontSize: 20, fontWeight: '800', color: '#1E0A3C', marginBottom: 16 },
   cardPrimary: { borderRadius: 20, marginBottom: 12, elevation: 4, shadowColor: '#F97316', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 },

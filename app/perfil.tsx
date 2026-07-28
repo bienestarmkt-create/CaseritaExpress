@@ -36,6 +36,7 @@ export default function PerfilScreen() {
   const [rolEstado, setRolEstado] = useState<'cargando' | 'error' | 'repartidor' | 'cliente'>('cargando');
   const [entregasCompletadas, setEntregasCompletadas] = useState(0);
   const [enCaminoCount, setEnCaminoCount] = useState(0);
+  const [miPromedio, setMiPromedio] = useState<{ promedio: number; total_ratings: number } | null>(null);
   // Edición de perfil — repartidor
   const [perfilForm, setPerfilForm] = useState({
     nombre: '', telefono: '', ci: '', edad: '',
@@ -104,6 +105,13 @@ export default function PerfilScreen() {
           .from('pedidos').select('id', { count: 'exact', head: true })
           .eq('repartidor_id', user.id).eq('estado', 'en_camino');
         setEnCaminoCount(enCamino ?? 0);
+
+        const { data: prom } = await supabase
+          .from('v_promedios_repartidores')
+          .select('promedio, total_ratings')
+          .eq('repartidor_id', user.id)
+          .maybeSingle();
+        if (prom) setMiPromedio({ promedio: Number(prom.promedio), total_ratings: Number(prom.total_ratings) });
 
         setRolEstado('repartidor');
       } else {
@@ -244,7 +252,9 @@ export default function PerfilScreen() {
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statBox}>
-              <Text style={styles.statNum}>5.0 ⭐</Text>
+              <Text style={styles.statNum}>
+                {miPromedio ? `${miPromedio.promedio.toFixed(1)} ⭐` : 'Sin calificar'}
+              </Text>
               <Text style={styles.statLabelNaranja}>Calificación</Text>
             </View>
           </View>

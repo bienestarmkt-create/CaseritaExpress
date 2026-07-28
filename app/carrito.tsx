@@ -327,7 +327,7 @@ export default function CarritoScreen() {
         )}
 
         {/* ── Selector método de pago ── */}
-        {items.length > 0 && (
+        {tieneDelivery && (
           <View style={styles.metodosBox}>
             <Text style={styles.metodosTitle}>Método de pago</Text>
 

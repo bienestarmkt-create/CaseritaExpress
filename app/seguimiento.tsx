@@ -1,7 +1,7 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Animated, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Animated, Linking, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import MapaRepartidor from '../components/MapaRepartidor';
 import StarRating from '../components/StarRating';
 import { supabase } from '../lib/supabase';
@@ -30,43 +30,47 @@ const PASOS_PEDIDO = [
   { estado: 'entregado',      label: 'Pedido entregado',     emoji: '🎉',   descripcion: '¡Disfruta tu pedido!' },
 ] as const;
 
+// Título del header — refleja el estado real de pedidos.estado en vez de
+// un ternario fijo entre solo dos textos.
+const HEADER_TITULO: Record<string, string> = {
+  pendiente:      '⏳ Esperando confirmación de pago',
+  confirmado:     '✅ Pedido confirmado',
+  asignado:       '🏍️ Repartidor asignado',
+  en_preparacion: '👨‍🍳 Preparando tu pedido',
+  listo:          '📦 Pedido listo',
+  en_camino:      '🏍️ Pedido en camino',
+  entregado:      '🎉 ¡Pedido entregado!',
+  cancelado:      '❌ Pedido cancelado',
+};
+
 // BACKLOG post-piloto: reemplazar por datos reales del repartidor asignado
 // (nombre/foto/vehículo ya existen en `usuarios`; rating real vía
 // v_promedios_repartidores, igual que en app/repartidor/pedidos.tsx).
+// telefono queda null a propósito: nunca se debe mostrar un número fake,
+// solo el real que llega desde `usuarios.telefono`.
 const REPARTIDOR_DEFAULT = {
   nombre: 'Repartidor CaseritaExpress',
   emoji: '🏍️',
   rating: 4.9,
   entregas: 342,
-  telefono: '+591 71234567',
+  telefono: null as string | null,
   vehiculo: 'Honda CB 125',
   placa: '2341-BJK',
   verificado: true,
 };
 
-// BACKLOG post-piloto: el chat es una simulación local (auto-respuesta fake
-// en enviarMensaje) — no persiste en DB ni llega al repartidor real.
-const MENSAJES_INICIALES = [
-  { id: 1, tipo: 'sistema',     texto: 'Chat iniciado con Carlos Mamani',               hora: '14:48' },
-  { id: 2, tipo: 'repartidor',  texto: '¡Hola! Ya recogí tu pedido, voy en camino 🛵',  hora: '14:48' },
-  { id: 3, tipo: 'usuario',     texto: 'Perfecto, te espero en la puerta',              hora: '14:49' },
-  { id: 4, tipo: 'repartidor',  texto: 'Estoy a unos 5 minutos aproximadamente 👍',     hora: '14:52' },
-];
-
-const RESPUESTAS_RAPIDAS = [
-  '¿Cuánto falta? ⏱️',
-  'Te espero abajo 👋',
-  'Toca el timbre 🔔',
-  'Gracias! 😊',
-  'Sin problema 👍',
-];
+function telefonoNormalizado(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const digits = raw.replace(/\D/g, '');
+  if (!digits) return null;
+  return digits.length === 8 ? `591${digits}` : digits;
+}
 
 // ─── COMPONENTE PRINCIPAL ─────────────────────────────────
 export default function SeguimientoScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ pedidoId?: string }>();
   const [tabActiva, setTabActiva] = useState<'seguimiento' | 'repartidor' | 'chat' | 'pedido'>('seguimiento');
-  const [mensajes, setMensajes] = useState(MENSAJES_INICIALES);
   const [pedidoEntregado, setPedidoEntregado] = useState(false);
   const [modalCalificar, setModalCalificar] = useState(false);
   // ── Estado de calificación (nuevo sistema completo) ──────────
@@ -77,7 +81,6 @@ export default function SeguimientoScreen() {
   const [guardandoRating,        setGuardandoRating]         = useState(false);
   const [calificado,             setCalificado]              = useState(false);
   const [yaOfrecioModal,         setYaOfrecioModal]          = useState(false); // evita mostrar modal 2 veces en misma sesión
-  const [notifChat, setNotifChat] = useState(0);
   const [pedidoReal, setPedidoReal] = useState<any>(null);
   const [repartidorReal, setRepartidorReal] = useState<any>(null);
   const [repartidorCoords, setRepartidorCoords] = useState<{ lat: number; lng: number } | null>(null);
@@ -186,14 +189,14 @@ export default function SeguimientoScreen() {
         }
       }
       if (data.repartidor_nombre) {
-        setRepartidorReal({ ...REPARTIDOR_DEFAULT, nombre: data.repartidor_nombre });
+        setRepartidorReal({ ...REPARTIDOR_DEFAULT, nombre: data.repartidor_nombre, telefono: null });
       } else if (data.repartidor_id) {
         const { data: u } = await supabase
           .from('usuarios')
-          .select('nombre')
+          .select('nombre, telefono')
           .eq('id', data.repartidor_id)
           .single();
-        if (u?.nombre) setRepartidorReal({ ...REPARTIDOR_DEFAULT, nombre: u.nombre });
+        if (u?.nombre) setRepartidorReal({ ...REPARTIDOR_DEFAULT, nombre: u.nombre, telefono: u.telefono ?? null });
       }
     }
 
@@ -213,7 +216,7 @@ export default function SeguimientoScreen() {
     restauranteEmoji: '🍔',
     items: Array.isArray(pedidoReal.items) ? pedidoReal.items : [],
     subtotal: pedidoReal.subtotal ?? pedidoReal.total ?? 0,
-    envio: 10,
+    envio: pedidoReal.costo_envio ?? 0,
     total: pedidoReal.total ?? 0,
     direccion: pedidoReal.direccion_entrega ?? 'Dirección de entrega',
     referencia: '',
@@ -244,18 +247,18 @@ export default function SeguimientoScreen() {
     ).start();
   }, []);
 
-  const enviarMensaje = (texto: string) => {
-    const hora = new Date().toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit' });
-    setMensajes(prev => [...prev, { id: Date.now(), tipo: 'usuario', texto, hora }]);
-    setTimeout(() => {
-      setMensajes(prev => [...prev, {
-        id: Date.now() + 1,
-        tipo: 'repartidor',
-        texto: '👍 ¡Entendido! Ya casi llego.',
-        hora: new Date().toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit' }),
-      }]);
-      if (tabActiva !== 'chat') setNotifChat(n => n + 1);
-    }, 1500);
+  const telefonoRepartidor = telefonoNormalizado(REPARTIDOR.telefono);
+
+  const llamarRepartidor = () => {
+    if (!telefonoRepartidor) return;
+    Linking.openURL(`tel:+${telefonoRepartidor}`);
+  };
+
+  const whatsappRepartidor = () => {
+    if (!telefonoRepartidor) return;
+    const url = `https://wa.me/${telefonoRepartidor}`;
+    if (Platform.OS === 'web') window.open(url, '_blank', 'noopener,noreferrer');
+    else Linking.openURL(url);
   };
 
   const confirmarCalificacion = async () => {
@@ -282,7 +285,7 @@ export default function SeguimientoScreen() {
   const TABS = [
     { id: 'seguimiento', emoji: '🗺️',  label: 'Mapa'       },
     { id: 'repartidor',  emoji: '🏍️',  label: 'Repartidor' },
-    { id: 'chat',        emoji: '💬',   label: 'Chat',  notif: notifChat },
+    { id: 'chat',        emoji: '📞',   label: 'Contacto'   },
     { id: 'pedido',      emoji: '📦',   label: 'Pedido'     },
   ];
 
@@ -296,7 +299,7 @@ export default function SeguimientoScreen() {
         </TouchableOpacity>
         <View style={s.headerContent}>
           <Text style={s.headerTitle}>
-            {pedidoEntregado ? '🎉 ¡Pedido entregado!' : '🏍️ Pedido en camino'}
+            {HEADER_TITULO[pedidoReal?.estado as string] ?? (pedidoEntregado ? '🎉 ¡Pedido entregado!' : '🏍️ Pedido en camino')}
           </Text>
           <Text style={s.headerNumero}>{PEDIDO.numero} • {PEDIDO.fecha}</Text>
           {pedidoEntregado && (
@@ -313,14 +316,9 @@ export default function SeguimientoScreen() {
           <TouchableOpacity
             key={tab.id}
             style={[s.tabBtn, tabActiva === tab.id && s.tabBtnActivo]}
-            onPress={() => { setTabActiva(tab.id as any); if (tab.id === 'chat') setNotifChat(0); }}>
+            onPress={() => setTabActiva(tab.id as any)}>
             <View style={s.tabInner}>
               <Text style={s.tabEmoji}>{tab.emoji}</Text>
-              {tab.notif ? (
-                <View style={s.tabNotifBadge}>
-                  <Text style={s.tabNotifText}>{tab.notif}</Text>
-                </View>
-              ) : null}
             </View>
             <Text style={[s.tabLabel, tabActiva === tab.id && s.tabLabelActivo]}>{tab.label}</Text>
           </TouchableOpacity>
@@ -419,18 +417,26 @@ export default function SeguimientoScreen() {
 
             {/* Botones contacto */}
             <View style={s.contactoRow}>
-              <TouchableOpacity style={s.contactoBtn}>
+              <TouchableOpacity
+                style={[s.contactoBtn, !telefonoRepartidor && s.contactoBtnDisabled]}
+                onPress={llamarRepartidor}
+                disabled={!telefonoRepartidor}
+              >
                 <LinearGradient colors={['#059669','#10B981']} style={s.contactoGrad}>
                   <Text style={s.contactoBtnEmoji}>📞</Text>
                   <Text style={s.contactoBtnLabel}>Llamar</Text>
-                  <Text style={s.contactoBtnSub}>{REPARTIDOR.telefono}</Text>
+                  <Text style={s.contactoBtnSub}>{telefonoRepartidor ? REPARTIDOR.telefono : 'No disponible'}</Text>
                 </LinearGradient>
               </TouchableOpacity>
-              <TouchableOpacity style={s.contactoBtn} onPress={() => setTabActiva('chat')}>
-                <LinearGradient colors={['#7C3AED','#5B21B6']} style={s.contactoGrad}>
+              <TouchableOpacity
+                style={[s.contactoBtn, !telefonoRepartidor && s.contactoBtnDisabled]}
+                onPress={whatsappRepartidor}
+                disabled={!telefonoRepartidor}
+              >
+                <LinearGradient colors={['#25D366','#128C7E']} style={s.contactoGrad}>
                   <Text style={s.contactoBtnEmoji}>💬</Text>
-                  <Text style={s.contactoBtnLabel}>Chat</Text>
-                  <Text style={s.contactoBtnSub}>Enviar mensaje</Text>
+                  <Text style={s.contactoBtnLabel}>WhatsApp</Text>
+                  <Text style={s.contactoBtnSub}>{telefonoRepartidor ? REPARTIDOR.telefono : 'No disponible'}</Text>
                 </LinearGradient>
               </TouchableOpacity>
             </View>
@@ -450,56 +456,40 @@ export default function SeguimientoScreen() {
           </View>
         )}
 
-        {/* ── TAB: CHAT ───────────────────────────────── */}
+        {/* ── TAB: CONTACTO ───────────────────────────── */}
         {tabActiva === 'chat' && (
           <View>
-            {/* Header chat */}
             <View style={s.chatHeader}>
               <Text style={s.chatAvatarEmoji}>{REPARTIDOR.emoji}</Text>
               <View>
                 <Text style={s.chatNombre}>{REPARTIDOR.nombre}</Text>
-                <Text style={s.chatEstado}>🟢 En camino a tu ubicación</Text>
+                <Text style={s.chatEstado}>
+                  {telefonoRepartidor ? '🟢 Contactalo directamente' : '⚠️ Teléfono no disponible'}
+                </Text>
               </View>
             </View>
 
-            {/* Mensajes */}
-            <View style={s.mensajesBox}>
-              {mensajes.map(msg => {
-                if (msg.tipo === 'sistema') return (
-                  <View key={msg.id} style={s.msgSistemaRow}>
-                    <Text style={s.msgSistemaText}>{msg.texto}</Text>
-                  </View>
-                );
-                const esUsuario = msg.tipo === 'usuario';
-                return (
-                  <View key={msg.id} style={[s.msgRow, esUsuario && s.msgRowUsuario]}>
-                    {!esUsuario && <Text style={s.msgAvatar}>{REPARTIDOR.emoji}</Text>}
-                    <View style={[s.msgBurbuja, esUsuario ? s.msgBurbujaUsuario : s.msgBurbujaRepartidor]}>
-                      <Text style={[s.msgTexto, esUsuario && s.msgTextoUsuario]}>{msg.texto}</Text>
-                      <Text style={[s.msgHora, esUsuario && s.msgHoraUsuario]}>{msg.hora}</Text>
-                    </View>
-                  </View>
-                );
-              })}
-            </View>
-
-            {/* Respuestas rápidas */}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.rapidas} contentContainerStyle={{ gap: 8, paddingHorizontal: 16 }}>
-              {RESPUESTAS_RAPIDAS.map(r => (
-                <TouchableOpacity key={r} onPress={() => enviarMensaje(r)} style={s.rapidaBtn}>
-                  <Text style={s.rapidaText}>{r}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-
-            {/* Input */}
-            <View style={s.inputRow}>
-              <TouchableOpacity style={s.inputBox} onPress={() => enviarMensaje('¿Cuánto tiempo falta? ⏱️')}>
-                <Text style={s.inputPlaceholder}>💬 Toca para enviar un mensaje...</Text>
+            <View style={[s.contactoRow, { padding: 16 }]}>
+              <TouchableOpacity
+                style={[s.contactoBtn, !telefonoRepartidor && s.contactoBtnDisabled]}
+                onPress={llamarRepartidor}
+                disabled={!telefonoRepartidor}
+              >
+                <LinearGradient colors={['#059669','#10B981']} style={s.contactoGrad}>
+                  <Text style={s.contactoBtnEmoji}>📞</Text>
+                  <Text style={s.contactoBtnLabel}>Llamar</Text>
+                  <Text style={s.contactoBtnSub}>{telefonoRepartidor ? REPARTIDOR.telefono : 'No disponible'}</Text>
+                </LinearGradient>
               </TouchableOpacity>
-              <TouchableOpacity onPress={() => enviarMensaje('👍')} style={s.sendBtn}>
-                <LinearGradient colors={['#F97316','#EA580C']} style={s.sendGrad}>
-                  <Text style={s.sendText}>→</Text>
+              <TouchableOpacity
+                style={[s.contactoBtn, !telefonoRepartidor && s.contactoBtnDisabled]}
+                onPress={whatsappRepartidor}
+                disabled={!telefonoRepartidor}
+              >
+                <LinearGradient colors={['#25D366','#128C7E']} style={s.contactoGrad}>
+                  <Text style={s.contactoBtnEmoji}>💬</Text>
+                  <Text style={s.contactoBtnLabel}>WhatsApp</Text>
+                  <Text style={s.contactoBtnSub}>{telefonoRepartidor ? REPARTIDOR.telefono : 'No disponible'}</Text>
                 </LinearGradient>
               </TouchableOpacity>
             </View>
@@ -659,8 +649,6 @@ const s = StyleSheet.create({
   tabBtnActivo:         { borderBottomColor: '#F97316' },
   tabInner:             { position: 'relative', marginBottom: 2 },
   tabEmoji:             { fontSize: 20 },
-  tabNotifBadge:        { position: 'absolute', top: -4, right: -8, backgroundColor: '#EF4444', borderRadius: 8, width: 16, height: 16, alignItems: 'center', justifyContent: 'center' },
-  tabNotifText:         { color: '#FFF', fontSize: 9, fontWeight: '800' },
   tabLabel:             { fontSize: 10, color: '#9CA3AF', fontWeight: '500' },
   tabLabelActivo:       { color: '#F97316', fontWeight: '700' },
   body:                 { flex: 1 },
@@ -707,6 +695,7 @@ const s = StyleSheet.create({
   contactoBtnEmoji:     { fontSize: 26, marginBottom: 4 },
   contactoBtnLabel:     { color: '#FFF', fontWeight: '800', fontSize: 15 },
   contactoBtnSub:       { color: 'rgba(255,255,255,0.8)', fontSize: 11, marginTop: 2 },
+  contactoBtnDisabled:  { opacity: 0.5 },
   seguridadCard:        { backgroundColor: '#FFF', borderRadius: 16, padding: 16, borderLeftWidth: 4, borderLeftColor: '#F97316' },
   seguridadTitle:       { fontSize: 14, fontWeight: '700', color: '#1E0A3C', marginBottom: 10 },
   seguridadItem:        { fontSize: 12, color: '#6B7280', marginBottom: 6, lineHeight: 18 },
@@ -714,28 +703,6 @@ const s = StyleSheet.create({
   chatAvatarEmoji:      { fontSize: 36 },
   chatNombre:           { fontSize: 15, fontWeight: '700', color: '#1E0A3C' },
   chatEstado:           { fontSize: 12, color: '#10B981', marginTop: 2 },
-  mensajesBox:          { padding: 16, gap: 10 },
-  msgSistemaRow:        { alignItems: 'center', marginVertical: 4 },
-  msgSistemaText:       { fontSize: 11, color: '#9CA3AF', backgroundColor: '#F3F4F6', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 },
-  msgRow:               { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
-  msgRowUsuario:        { flexDirection: 'row-reverse' },
-  msgAvatar:            { fontSize: 26 },
-  msgBurbuja:           { maxWidth: '75%', padding: 12, borderRadius: 18 },
-  msgBurbujaRepartidor: { backgroundColor: '#FFF', borderBottomLeftRadius: 4, elevation: 1 },
-  msgBurbujaUsuario:    { backgroundColor: '#F97316', borderBottomRightRadius: 4 },
-  msgTexto:             { fontSize: 14, color: '#1E0A3C', lineHeight: 20 },
-  msgTextoUsuario:      { color: '#FFF' },
-  msgHora:              { fontSize: 10, color: '#9CA3AF', marginTop: 4 },
-  msgHoraUsuario:       { color: 'rgba(255,255,255,0.7)', textAlign: 'right' },
-  rapidas:              { maxHeight: 44, marginBottom: 8 },
-  rapidaBtn:            { backgroundColor: '#FFF', borderWidth: 1.5, borderColor: '#F97316', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20 },
-  rapidaText:           { fontSize: 12, color: '#F97316', fontWeight: '600' },
-  inputRow:             { flexDirection: 'row', padding: 16, gap: 10, backgroundColor: '#FFF', borderTopWidth: 1, borderTopColor: '#F3F4F6' },
-  inputBox:             { flex: 1, backgroundColor: '#F9FAFB', borderRadius: 24, paddingHorizontal: 16, paddingVertical: 14, justifyContent: 'center', borderWidth: 1, borderColor: '#E5E7EB' },
-  inputPlaceholder:     { color: '#9CA3AF', fontSize: 14 },
-  sendBtn:              { borderRadius: 24, overflow: 'hidden' },
-  sendGrad:             { width: 50, height: 50, alignItems: 'center', justifyContent: 'center' },
-  sendText:             { color: '#FFF', fontSize: 22, fontWeight: '800' },
   pedidoPad:            { padding: 16 },
   pedidoCard:           { backgroundColor: '#FFF', borderRadius: 20, padding: 20, elevation: 3, marginBottom: 16 },
   pedidoHeaderRow:      { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },

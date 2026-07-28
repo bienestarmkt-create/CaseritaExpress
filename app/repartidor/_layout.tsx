@@ -56,19 +56,30 @@ export default function RepartidorLayout() {
 
   const [loading,    setLoading]    = useState(true)
   const [autorizado, setAutorizado] = useState(false)
+  const [error,      setError]      = useState(false)
   const [nombre,     setNombre]     = useState('')
+
+  // Evita que un await cuelgue para siempre cuando la red se queda muda
+  // (mismo patrón que app/perfil.tsx y app/index.tsx).
+  const conTimeout = <T,>(promesa: PromiseLike<T>, ms: number): Promise<T> => {
+    return Promise.race([
+      promesa,
+      new Promise<T>((_, reject) => setTimeout(() => reject(new Error('Tiempo de espera agotado')), ms)),
+    ])
+  }
 
   // ── Guard: mismo patrón que admin/_layout.tsx ─────────────
   const checkAccess = useCallback(async () => {
+    setLoading(true)
+    setError(false)
     try {
-      const { data: { user }, error: authError } = await supabase.auth.getUser()
+      const { data: { user }, error: authError } = await conTimeout(supabase.auth.getUser(), 8000)
       if (authError || !user) { router.replace('/'); return }
 
-      const { data: profile, error: profileError } = await supabase
-        .from('usuarios')
-        .select('rol, nombre')
-        .eq('id', user.id)
-        .single()
+      const { data: profile, error: profileError } = await conTimeout(
+        supabase.from('usuarios').select('rol, nombre').eq('id', user.id).single(),
+        8000
+      )
 
       if (profileError || profile?.rol !== 'repartidor') {
         router.replace('/')
@@ -78,7 +89,9 @@ export default function RepartidorLayout() {
       setNombre(profile.nombre ?? user.email ?? 'Repartidor')
       setAutorizado(true)
     } catch {
-      router.replace('/')
+      // Timeout u otro error de red — nunca redirigir a '/' por esto,
+      // solo por dato confirmado. Se ofrece reintentar.
+      setError(true)
     } finally {
       setLoading(false)
     }
@@ -97,6 +110,20 @@ export default function RepartidorLayout() {
       <View style={styles.centered}>
         <ActivityIndicator size="large" color={C.primary} />
         <Text style={styles.loadingText}>Verificando acceso…</Text>
+      </View>
+    )
+  }
+
+  // ── Error: la verificación falló tras el timeout ───────────
+  if (error) {
+    return (
+      <View style={styles.centered}>
+        <Text style={styles.errorEmoji}>⚠️</Text>
+        <Text style={styles.errorTitle}>No pudimos verificar tu acceso</Text>
+        <Text style={styles.loadingText}>Revisá tu conexión e intentá de nuevo</Text>
+        <TouchableOpacity style={styles.retryBtn} onPress={checkAccess}>
+          <Text style={styles.retryBtnText}>🔄 Reintentar</Text>
+        </TouchableOpacity>
       </View>
     )
   }
@@ -193,6 +220,12 @@ const styles = StyleSheet.create({
     backgroundColor: C.bg, gap: 12,
   },
   loadingText: { color: C.textLight, fontSize: 14 },
+  errorEmoji:  { fontSize: 40 },
+  errorTitle:  { color: C.text, fontSize: 16, fontWeight: '700' },
+  retryBtn:    {
+    marginTop: 8, backgroundColor: C.primary, paddingHorizontal: 24, paddingVertical: 10, borderRadius: 12,
+  },
+  retryBtnText: { color: '#FFF', fontWeight: '700' },
 
   // Web
   webContainer:  { flex: 1, flexDirection: 'row', backgroundColor: C.bg },

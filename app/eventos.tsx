@@ -33,8 +33,9 @@ export default function EventosScreen() {
       setTimeout(() => reject(new Error('Tiempo de espera agotado. Verifica tu conexión.')), TIMEOUT_MS)
     );
     try {
+      const hoy = new Date().toISOString().slice(0, 10);
       const { data, error } = await Promise.race([
-        supabase.from('eventos').select('*').eq('activo', true).order('fecha_evento', { ascending: true }),
+        supabase.from('eventos').select('*').eq('activo', true).gte('fecha_evento', hoy).order('fecha_evento', { ascending: true }),
         timeout,
       ]);
       if (error) throw new Error(error.message);
