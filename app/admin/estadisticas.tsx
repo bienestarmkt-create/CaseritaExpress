@@ -87,14 +87,13 @@ type StatsData = {
 
 // Colores por estado para el desglose
 const ESTADO_COLORS: Record<string, string> = {
-  pendiente:      '#F4A261',
-  aceptado:       '#4A90E2',
-  en_preparacion: '#9B59B6',
-  listo:          '#2DC653',
-  asignado:       '#1ABC9C',
-  en_camino:      '#E67E22',
-  entregado:      '#27AE60',
-  cancelado:      '#95A5A6',
+  pendiente:  '#F4A261',
+  confirmado: '#4A90E2',
+  asignado:   '#1ABC9C',
+  preparando: '#9B59B6',
+  en_camino:  '#E67E22',
+  entregado:  '#27AE60',
+  cancelado:  '#95A5A6',
 }
 
 // ─── Componente StatCard ──────────────────────────────────────

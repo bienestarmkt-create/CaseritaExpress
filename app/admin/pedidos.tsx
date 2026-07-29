@@ -12,7 +12,7 @@
  *
  * Supuestos de esquema:
  *  pedidos:   id, cliente_id, negocio_id, estado, total, created_at
- *  profiles:  id, nombre
+ *  usuarios:  id, nombre
  *  negocios:  id, nombre
  * ─────────────────────────────────────────────────────────────
  */
@@ -29,6 +29,7 @@ import {
   Pressable,
   RefreshControl,
   Platform,
+  Alert,
 } from 'react-native'
 import { RealtimeChannel } from '@supabase/supabase-js'
 import { notificarCambioEstado } from '../../lib/notifications'
@@ -49,43 +50,42 @@ const C = {
 }
 
 // ─── Estados del pedido ────────────────────────────────────────
+// Valores reales del constraint pedidos_estado_check (migración 20260721000000):
+// pendiente, confirmado, asignado, preparando, en_camino, entregado, cancelado.
 type EstadoPedido =
   | 'pendiente'
-  | 'aceptado'
-  | 'en_preparacion'
-  | 'listo'
+  | 'confirmado'
   | 'asignado'
+  | 'preparando'
   | 'en_camino'
   | 'entregado'
   | 'cancelado'
 
 // Estados que el admin puede asignar manualmente
 const ESTADOS_DISPONIBLES: { value: EstadoPedido; label: string }[] = [
-  { value: 'pendiente',      label: 'Pendiente'      },
-  { value: 'aceptado',       label: 'Aceptado'       },
-  { value: 'en_preparacion', label: 'En preparación' },
-  { value: 'listo',          label: 'Listo'           },
-  { value: 'asignado',       label: 'Asignado'        },
-  { value: 'en_camino',      label: 'En camino'       },
-  { value: 'entregado',      label: 'Entregado'       },
-  { value: 'cancelado',      label: 'Cancelado'       },
+  { value: 'pendiente',  label: 'Pendiente'  },
+  { value: 'confirmado', label: 'Confirmado' },
+  { value: 'asignado',   label: 'Asignado'   },
+  { value: 'preparando', label: 'Preparando' },
+  { value: 'en_camino',  label: 'En camino'  },
+  { value: 'entregado',  label: 'Entregado'  },
+  { value: 'cancelado',  label: 'Cancelado'  },
 ]
 
 // Estados "activos" que se muestran por defecto
 const ESTADOS_ACTIVOS: EstadoPedido[] = [
-  'pendiente', 'aceptado', 'en_preparacion', 'listo', 'asignado', 'en_camino',
+  'pendiente', 'confirmado', 'asignado', 'preparando', 'en_camino',
 ]
 
 // ─── Colores por estado ────────────────────────────────────────
 const ESTADO_COLOR: Record<EstadoPedido, string> = {
-  pendiente:      '#F4A261',
-  aceptado:       '#4A90E2',
-  en_preparacion: '#9B59B6',
-  listo:          '#2DC653',
-  asignado:       '#1ABC9C',
-  en_camino:      '#E63946',
-  entregado:      '#27AE60',
-  cancelado:      '#95A5A6',
+  pendiente:  '#F4A261',
+  confirmado: '#4A90E2',
+  asignado:   '#1ABC9C',
+  preparando: '#9B59B6',
+  en_camino:  '#E63946',
+  entregado:  '#27AE60',
+  cancelado:  '#95A5A6',
 }
 
 // ─── Tipo Pedido ───────────────────────────────────────────────
@@ -231,6 +231,7 @@ export default function PedidosAdminScreen() {
   const [pedidoActivo, setPedidoActivo] = useState<Pedido | null>(null)
   const [saving,       setSaving]       = useState(false)
   const [mostrarTodos, setMostrarTodos] = useState(false)
+  const [errorPedidos, setErrorPedidos] = useState<string | null>(null)
   const channelRef = useRef<RealtimeChannel | null>(null)
 
   // ── Cargar pedidos ──────────────────────────────────────────
@@ -244,7 +245,7 @@ export default function PedidosAdminScreen() {
         estado,
         total,
         created_at,
-        cliente:profiles!cliente_id ( id, nombre ),
+        cliente:usuarios!cliente_id ( id, nombre ),
         negocio:negocios!negocio_id ( id, nombre )
       `)
       .order('created_at', { ascending: false })
@@ -256,7 +257,11 @@ export default function PedidosAdminScreen() {
 
     const { data, error } = await query
 
-    if (!error && data) {
+    if (error) {
+      console.error('[admin/pedidos] Error cargando pedidos', error.message)
+      setErrorPedidos('No se pudieron cargar los pedidos. Revisá tu conexión.')
+    } else {
+      setErrorPedidos(null)
       setPedidos(data as Pedido[])
     }
     setLoading(false)
@@ -303,17 +308,22 @@ export default function PedidosAdminScreen() {
       .update({ estado: nuevoEstado })
       .eq('id', pedidoActivo.id)
 
-    if (!error) {
-      // Actualizar localmente sin esperar a Realtime
-      setPedidos(prev =>
-        prev.map(p =>
-          p.id === pedidoActivo.id ? { ...p, estado: nuevoEstado } : p
-        )
-      )
-      // Notificar al cliente — falla silenciosamente si hay error
-      notificarCambioEstado(pedidoActivo.id, nuevoEstado).catch(() => {})
-    }
     setSaving(false)
+
+    if (error) {
+      console.error('[admin/pedidos] Error al cambiar estado', pedidoActivo.id, error.message)
+      Alert.alert('No se pudo cambiar el estado', error.message)
+      return // deja el modal abierto para reintentar
+    }
+
+    // Actualizar localmente sin esperar a Realtime
+    setPedidos(prev =>
+      prev.map(p =>
+        p.id === pedidoActivo.id ? { ...p, estado: nuevoEstado } : p
+      )
+    )
+    // Notificar al cliente — falla silenciosamente si hay error
+    notificarCambioEstado(pedidoActivo.id, nuevoEstado).catch(() => {})
     setModalVisible(false)
     setPedidoActivo(null)
   }
@@ -347,6 +357,16 @@ export default function PedidosAdminScreen() {
           </Text>
         </TouchableOpacity>
       </View>
+
+      {errorPedidos ? (
+        <TouchableOpacity
+          style={styles.avisoBox}
+          onPress={() => fetchPedidos()}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.avisoText}>⚠️ {errorPedidos} Tocá para reintentar.</Text>
+        </TouchableOpacity>
+      ) : null}
 
       {/* Lista */}
       <FlatList
@@ -470,6 +490,11 @@ const styles = StyleSheet.create({
   },
   filterBtnText:       { fontSize: 13, color: C.textLight, fontWeight: '600' },
   filterBtnTextActive: { color: '#fff' },
+  avisoBox: {
+    backgroundColor: C.warning + '20', borderRadius: 10,
+    padding: 12, marginHorizontal: 16, marginTop: 12,
+  },
+  avisoText: { fontSize: 13, color: C.warning, fontWeight: '600' },
   list: {
     padding:     16,
     paddingBottom: 32,

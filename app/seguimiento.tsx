@@ -8,12 +8,11 @@ import { supabase } from '../lib/supabase';
 
 // ─── ESTADO REAL DE pedidos.estado ───────────────────────
 // Orden real usado en app/negocio/pedidos.tsx, app/repartidor/pedidos.tsx y
-// app/admin/pedidos.tsx. No todos los pasos se alcanzan siempre — el negocio
-// puede pasar directo de "confirmado" a "listo" sin pasar por
-// "en_preparacion" — por eso el ranking es solo para saber qué ya quedó
+// app/admin/pedidos.tsx (constraint pedidos_estado_check). No todos los
+// pasos se alcanzan siempre — el ranking es solo para saber qué ya quedó
 // atrás, no una promesa de que cada paso individual ocurrió.
 const ORDEN_ESTADOS = [
-  'pendiente', 'confirmado', 'asignado', 'en_preparacion', 'listo', 'en_camino', 'entregado',
+  'pendiente', 'confirmado', 'asignado', 'preparando', 'en_camino', 'entregado',
 ] as const;
 
 function rangoEstado(estado: string | undefined): number {
@@ -22,25 +21,23 @@ function rangoEstado(estado: string | undefined): number {
 }
 
 const PASOS_PEDIDO = [
-  { estado: 'confirmado',     label: 'Pedido confirmado',    emoji: '✅',   descripcion: 'Tu pago fue validado' },
-  { estado: 'asignado',       label: 'Repartidor asignado',  emoji: '🏍️',  descripcion: 'Un repartidor tomó tu pedido' },
-  { estado: 'en_preparacion', label: 'Preparando tu pedido', emoji: '👨‍🍳', descripcion: 'El negocio está preparando tu pedido' },
-  { estado: 'listo',          label: 'Pedido listo',         emoji: '📦',   descripcion: 'Listo para que lo recoja el repartidor' },
-  { estado: 'en_camino',      label: 'Repartidor en camino', emoji: '🏍️',  descripcion: 'Tu pedido va en camino' },
-  { estado: 'entregado',      label: 'Pedido entregado',     emoji: '🎉',   descripcion: '¡Disfruta tu pedido!' },
+  { estado: 'confirmado', label: 'Pedido confirmado',    emoji: '✅',   descripcion: 'Tu pago fue validado' },
+  { estado: 'asignado',   label: 'Repartidor asignado',  emoji: '🏍️',  descripcion: 'Un repartidor tomó tu pedido' },
+  { estado: 'preparando', label: 'Preparando tu pedido', emoji: '👨‍🍳', descripcion: 'El negocio está preparando tu pedido' },
+  { estado: 'en_camino',  label: 'Repartidor en camino', emoji: '🏍️',  descripcion: 'Tu pedido va en camino' },
+  { estado: 'entregado',  label: 'Pedido entregado',     emoji: '🎉',   descripcion: '¡Disfruta tu pedido!' },
 ] as const;
 
 // Título del header — refleja el estado real de pedidos.estado en vez de
 // un ternario fijo entre solo dos textos.
 const HEADER_TITULO: Record<string, string> = {
-  pendiente:      '⏳ Esperando confirmación de pago',
-  confirmado:     '✅ Pedido confirmado',
-  asignado:       '🏍️ Repartidor asignado',
-  en_preparacion: '👨‍🍳 Preparando tu pedido',
-  listo:          '📦 Pedido listo',
-  en_camino:      '🏍️ Pedido en camino',
-  entregado:      '🎉 ¡Pedido entregado!',
-  cancelado:      '❌ Pedido cancelado',
+  pendiente:  '⏳ Esperando confirmación de pago',
+  confirmado: '✅ Pedido confirmado',
+  asignado:   '🏍️ Repartidor asignado',
+  preparando: '👨‍🍳 Preparando tu pedido',
+  en_camino:  '🏍️ Pedido en camino',
+  entregado:  '🎉 ¡Pedido entregado!',
+  cancelado:  '❌ Pedido cancelado',
 };
 
 // BACKLOG post-piloto: reemplazar por datos reales del repartidor asignado

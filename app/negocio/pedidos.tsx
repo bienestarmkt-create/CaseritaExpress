@@ -5,7 +5,9 @@
  *
  * Muestra pedidos activos del negocio del anfitrión autenticado.
  * - Realtime via Supabase channel.
- * - Botón "Marcar como listo" → estado 'listo'.
+ * - Botón "Marcar listo" → estado 'preparando'. Es informativo: el pool
+ *   del repartidor (app/repartidor/pedidos.tsx) sigue mostrando desde
+ *   'confirmado', este botón no lo gatea.
  * - Botón "Rechazar" → confirmación → estado 'cancelado'.
  * - Notifica al cliente via notificarCambioEstado().
  * ─────────────────────────────────────────────────────────────
@@ -31,15 +33,17 @@ import { notificarCambioEstado } from '../../lib/notifications'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 
 // ─── Tipos ────────────────────────────────────────────────────
-type EstadoPedido = 'pendiente' | 'confirmado' | 'asignado' | 'en_preparacion' | 'listo' | 'en_camino' | 'entregado' | 'cancelado'
+// Valores reales del constraint pedidos_estado_check (migración 20260721000000):
+// pendiente, confirmado, asignado, preparando, en_camino, entregado, cancelado.
+type EstadoPedido = 'pendiente' | 'confirmado' | 'asignado' | 'preparando' | 'en_camino' | 'entregado' | 'cancelado'
 
 type Pedido = {
-  id:         string
-  estado:     EstadoPedido
-  total:      number
-  created_at: string
-  direccion:  string
-  usuarios:   { nombre: string } | null
+  id:                string
+  estado:            EstadoPedido
+  total:             number
+  created_at:        string
+  direccion_entrega: string
+  usuarios:          { nombre: string } | null
 }
 
 // ─── Tema ─────────────────────────────────────────────────────
@@ -57,29 +61,27 @@ const C = {
 }
 
 const ESTADO_LABELS: Record<string, string> = {
-  pendiente:      'Pendiente',
-  confirmado:     'Confirmado',
-  asignado:       'Asignado',
-  en_preparacion: 'En preparación',
-  listo:          'Listo para retirar',
-  en_camino:      'En camino',
-  entregado:      'Entregado',
-  cancelado:      'Cancelado',
+  pendiente:  'Pendiente',
+  confirmado: 'Confirmado',
+  asignado:   'Asignado',
+  preparando: 'Preparando',
+  en_camino:  'En camino',
+  entregado:  'Entregado',
+  cancelado:  'Cancelado',
 }
 
 const ESTADO_COLOR: Record<string, string> = {
-  pendiente:      C.warning,
-  confirmado:     C.info,
-  asignado:       '#8B5CF6',
-  en_preparacion: '#F97316',
-  listo:          C.success,
-  en_camino:      '#06B6D4',
-  entregado:      C.success,
-  cancelado:      C.textLight,
+  pendiente:  C.warning,
+  confirmado: C.info,
+  asignado:   '#8B5CF6',
+  preparando: '#F97316',
+  en_camino:  '#06B6D4',
+  entregado:  C.success,
+  cancelado:  C.textLight,
 }
 
 // Estados activos visibles en la lista
-const ESTADOS_ACTIVOS: EstadoPedido[] = ['pendiente', 'confirmado', 'asignado', 'en_preparacion']
+const ESTADOS_ACTIVOS: EstadoPedido[] = ['pendiente', 'confirmado', 'asignado', 'preparando']
 
 function tiempoTranscurrido(iso: string): string {
   const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000)
@@ -96,6 +98,7 @@ export default function PedidosNegocioScreen() {
   const [negocioId,   setNegocioId]   = useState<string | null>(null)
   const [updatingId,  setUpdatingId]  = useState<string | null>(null)
   const [modalPedido, setModalPedido] = useState<Pedido | null>(null)
+  const [errorPedidos, setErrorPedidos] = useState<string | null>(null)
   const channelRef = useRef<RealtimeChannel | null>(null)
 
   // ── Obtener negocio del usuario autenticado ───────────────
@@ -119,12 +122,18 @@ export default function PedidosNegocioScreen() {
 
     const { data, error } = await supabase
       .from('pedidos')
-      .select('id, estado, total, created_at, direccion, usuarios!cliente_id(nombre)')
+      .select('id, estado, total, created_at, direccion_entrega, usuarios!cliente_id(nombre)')
       .eq('negocio_id', id)
       .in('estado', ESTADOS_ACTIVOS)
       .order('created_at', { ascending: false })
 
-    if (!error && data) setPedidos(data as unknown as Pedido[])
+    if (error) {
+      console.error('[negocio/pedidos] Error cargando pedidos', error.message)
+      setErrorPedidos('No se pudieron cargar los pedidos. Revisá tu conexión.')
+      return
+    }
+    setErrorPedidos(null)
+    setPedidos(data as unknown as Pedido[])
   }, [negocioId])
 
   // ── Inicialización ────────────────────────────────────────
@@ -165,7 +174,7 @@ export default function PedidosNegocioScreen() {
     setModalPedido(null)
 
     // Optimistic: sacar de la lista si es estado final
-    const estadosFinales: EstadoPedido[] = ['listo', 'cancelado']
+    const estadosFinales: EstadoPedido[] = ['cancelado']
     if (estadosFinales.includes(nuevoEstado)) {
       setPedidos(prev => prev.filter(p => p.id !== pedido.id))
     } else {
@@ -178,12 +187,14 @@ export default function PedidosNegocioScreen() {
       .eq('id', pedido.id)
 
     if (error) {
+      console.error('[negocio/pedidos] Error al cambiar estado', pedido.id, error.message)
       // Revert
       setPedidos(prev => {
         const exists = prev.find(p => p.id === pedido.id)
         if (exists) return prev.map(p => p.id === pedido.id ? { ...p, estado: pedido.estado } : p)
         return [pedido, ...prev]
       })
+      Alert.alert('No se pudo actualizar', error.message)
     } else {
       notificarCambioEstado(pedido.id, nuevoEstado).catch(() => {})
     }
@@ -224,10 +235,10 @@ export default function PedidosNegocioScreen() {
           </View>
         </View>
 
-        {item.direccion ? (
+        {item.direccion_entrega ? (
           <View style={styles.cardDir}>
             <Text style={styles.cardDirIcon}>📍</Text>
-            <Text style={styles.cardDirText} numberOfLines={1}>{item.direccion}</Text>
+            <Text style={styles.cardDirText} numberOfLines={1}>{item.direccion_entrega}</Text>
           </View>
         ) : null}
 
@@ -243,7 +254,7 @@ export default function PedidosNegocioScreen() {
 
           <TouchableOpacity
             style={[styles.btnListo, isUpdating && styles.btnDisabled]}
-            onPress={() => cambiarEstado(item, 'listo')}
+            onPress={() => cambiarEstado(item, 'preparando')}
             disabled={isUpdating}
             activeOpacity={0.7}
           >
@@ -269,11 +280,18 @@ export default function PedidosNegocioScreen() {
 
   // ── Render ────────────────────────────────────────────────
   const ListHeader = () => (
-    <View style={styles.listHeader}>
-      <Text style={styles.sectionTitle}>Pedidos activos ({pedidos.length})</Text>
-      <View style={styles.liveDot}>
-        <Text style={styles.liveText}>● EN VIVO</Text>
+    <View>
+      <View style={styles.listHeader}>
+        <Text style={styles.sectionTitle}>Pedidos activos ({pedidos.length})</Text>
+        <View style={styles.liveDot}>
+          <Text style={styles.liveText}>● EN VIVO</Text>
+        </View>
       </View>
+      {errorPedidos ? (
+        <TouchableOpacity style={styles.avisoBox} onPress={() => fetchPedidos()} activeOpacity={0.7}>
+          <Text style={styles.avisoText}>⚠️ {errorPedidos} Tocá para reintentar.</Text>
+        </TouchableOpacity>
+      ) : null}
     </View>
   )
 
@@ -323,6 +341,12 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 13, fontWeight: '700', color: C.textLight, textTransform: 'uppercase', letterSpacing: 0.5 },
   liveDot:    { flexDirection: 'row', alignItems: 'center' },
   liveText:   { fontSize: 11, color: C.primary, fontWeight: '700' },
+
+  avisoBox: {
+    backgroundColor: C.warning + '20', borderRadius: 10,
+    padding: 12, marginBottom: 10,
+  },
+  avisoText: { fontSize: 13, color: C.warning, fontWeight: '600' },
 
   card: {
     backgroundColor: C.surface, borderRadius: 14, padding: 16, gap: 10,
