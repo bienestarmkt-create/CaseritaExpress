@@ -77,6 +77,10 @@ const ESTADOS_ACTIVOS: EstadoPedido[] = [
   'pendiente', 'confirmado', 'asignado', 'preparando', 'en_camino',
 ]
 
+// Solo para el texto del banner — el umbral real se aplica en
+// app/repartidor/mapa.tsx al marcar la entrega.
+const UMBRAL_SOSPECHOSA_M = 200
+
 // ─── Colores por estado ────────────────────────────────────────
 const ESTADO_COLOR: Record<EstadoPedido, string> = {
   pendiente:  '#F4A261',
@@ -90,12 +94,13 @@ const ESTADO_COLOR: Record<EstadoPedido, string> = {
 
 // ─── Tipo Pedido ───────────────────────────────────────────────
 type Pedido = {
-  id:         string
-  estado:     EstadoPedido
-  total:      number
-  created_at: string
-  cliente:    { id: string; nombre: string } | null
-  negocio:    { id: string; nombre: string } | null
+  id:                 string
+  estado:             EstadoPedido
+  total:              number
+  created_at:         string
+  entrega_sospechosa: boolean | null
+  cliente:            { id: string; nombre: string } | null
+  negocio:            { id: string; nombre: string } | null
 }
 
 // ─── Helpers ──────────────────────────────────────────────────
@@ -163,6 +168,14 @@ function PedidoCard({
         </View>
       </View>
 
+      {pedido.entrega_sospechosa && (
+        <View style={cardStyles.sospechosaBanner}>
+          <Text style={cardStyles.sospechosaText}>
+            🚩 Entrega marcada a más de {UMBRAL_SOSPECHOSA_M}m del destino — revisar
+          </Text>
+        </View>
+      )}
+
       <View style={cardStyles.footer}>
         <BadgeEstado estado={pedido.estado} />
         <TouchableOpacity
@@ -202,6 +215,11 @@ const cardStyles = StyleSheet.create({
   headerRight: { alignItems: 'flex-end', gap: 2 },
   clienteNombre: { fontSize: 15, fontWeight: '700', color: C.text },
   negocioNombre: { fontSize: 13, color: C.textLight, marginTop: 2 },
+  sospechosaBanner: {
+    backgroundColor: '#FEE2E2', borderRadius: 8,
+    paddingVertical: 6, paddingHorizontal: 10, marginTop: 8,
+  },
+  sospechosaText: { fontSize: 12, color: '#991B1B', fontWeight: '700' },
   total:         { fontSize: 15, fontWeight: '700', color: C.primary },
   tiempo:        { fontSize: 11, color: C.textLight },
   footer: {
@@ -245,6 +263,7 @@ export default function PedidosAdminScreen() {
         estado,
         total,
         created_at,
+        entrega_sospechosa,
         cliente:usuarios!cliente_id ( id, nombre ),
         negocio:negocios!negocio_id ( id, nombre )
       `)

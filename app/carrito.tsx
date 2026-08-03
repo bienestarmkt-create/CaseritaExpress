@@ -2,10 +2,12 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useCarrito } from '../context/CarritoContext';
 import { supabase } from '../lib/supabase';
 import { sendPushTo } from '../lib/usePush';
+import { getCurrentPositionWeb } from '../lib/geolocationWeb';
+import MapaLeaflet from '../components/MapaLeaflet';
 import { BrandColors } from '../constants/theme';
 
 // Formato: CE-PED-XXXXXXXX (primeros 8 chars del UUID en mayúsculas)
@@ -45,6 +47,8 @@ export default function CarritoScreen() {
   const [destinoCoords, setDestinoCoords]       = useState<{ lat: number; lng: number } | null>(null);
   const [capturandoGPS, setCapturandoGPS]       = useState(false);
   const [mostrarErrorDir, setMostrarErrorDir]   = useState(false);
+  const [mostrarMapaManual, setMostrarMapaManual] = useState(false);
+  const [mapaManualMsg, setMapaManualMsg]         = useState('');
 
   const tieneDelivery    = items.some(i => i.tipo === 'delivery');
   const subtotal         = items.reduce((acc, i) => acc + i.precio * i.cantidad, 0);
@@ -52,21 +56,41 @@ export default function CarritoScreen() {
   const total            = subtotal + costoEnvio;
   const tiposEnCarrito   = [...new Set(items.map(i => i.tipo))];
 
-  const capturarUbicacion = async () => {
-    setCapturandoGPS(true);
+  // GPS silencioso — en web usa navigator.geolocation directo (dispara el
+  // popup real del navegador); expo-location en web puede resolver
+  // 'denied' sin mostrarlo nunca. Mismo patrón que ya usan
+  // repartidor/tracking.tsx y repartidor/mapa.tsx.
+  const intentarGPS = async (timeoutMs: number): Promise<{ lat: number; lng: number } | null> => {
+    if (Platform.OS === 'web') {
+      return getCurrentPositionWeb(timeoutMs);
+    }
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permiso de ubicación', 'Activa el GPS para usar esta función. Tu dirección escrita sigue siendo válida.');
-        return;
-      }
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      setDestinoCoords({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+      if (status !== 'granted') return null;
+      const locPromise = Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const nulAfterTimeout = new Promise<null>(res => setTimeout(() => res(null), timeoutMs));
+      const result = await Promise.race([locPromise, nulAfterTimeout]);
+      return result ? { lat: result.coords.latitude, lng: result.coords.longitude } : null;
     } catch {
-      Alert.alert('GPS no disponible', 'No se pudo obtener la ubicación. Escribe tu dirección manualmente.');
-    } finally {
-      setCapturandoGPS(false);
+      return null;
     }
+  };
+
+  const capturarUbicacion = async () => {
+    setCapturandoGPS(true);
+    const coords = await intentarGPS(8000);
+    setCapturandoGPS(false);
+
+    if (coords) {
+      setDestinoCoords(coords);
+      setMostrarMapaManual(false);
+      return;
+    }
+
+    // Nada de fallas silenciosas: si el GPS no responde, se ofrece el
+    // mapa editable en vez de un Alert que no deja rastro.
+    setMapaManualMsg('No pudimos ubicarte por GPS. Marcá tu ubicación en el mapa.');
+    setMostrarMapaManual(true);
   };
 
   const confirmarPedido = async () => {
@@ -81,16 +105,21 @@ export default function CarritoScreen() {
     // Intentar capturar GPS silenciosamente si el usuario no lo hizo antes (5 s máx)
     let finalDestinoCoords = destinoCoords;
     if (tieneDelivery && !finalDestinoCoords) {
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status === 'granted') {
-          const locPromise = Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-          const nulAfterTimeout = new Promise<null>(res => setTimeout(() => res(null), 5000));
-          const result = await Promise.race([locPromise, nulAfterTimeout]);
-          if (result) finalDestinoCoords = { lat: result.coords.latitude, lng: result.coords.longitude };
-        }
-      } catch { /* falla silenciosa — el pedido se crea sin coords */ }
+      finalDestinoCoords = await intentarGPS(5000);
+      if (finalDestinoCoords) setDestinoCoords(finalDestinoCoords);
     }
+
+    // Destino obligatorio para delivery: sin coordenadas no se confirma.
+    // Se cierra el modal y se ofrece el mapa editable en su lugar — nada
+    // de crear el pedido con destino_lat/lng en null.
+    if (tieneDelivery && !finalDestinoCoords) {
+      setGuardando(false);
+      setMostrarConfirm(false);
+      setMapaManualMsg('No pudimos ubicarte. Marcá tu ubicación en el mapa para confirmar el pedido.');
+      setMostrarMapaManual(true);
+      return;
+    }
+
     try {
       const { data: { user }, error: authError } = await supabase.auth.getUser();
       if (authError || !user) {
@@ -409,10 +438,27 @@ export default function CarritoScreen() {
             >
               {capturandoGPS
                 ? <ActivityIndicator size="small" color="#F97316" />
-                : <Text style={styles.gpsBtnText}>📡 Usar mi ubicación actual (opcional)</Text>}
+                : <Text style={styles.gpsBtnText}>📡 Usar mi ubicación actual</Text>}
             </TouchableOpacity>
-            {destinoCoords && (
+            {destinoCoords && !mostrarMapaManual && (
               <Text style={styles.gpsConfirmado}>✅ Ubicación GPS capturada — el repartidor verá tu pin en el mapa</Text>
+            )}
+
+            {mostrarMapaManual && (
+              <View style={styles.mapaManualBox}>
+                <Text style={styles.mapaManualMsg}>📍 {mapaManualMsg}</Text>
+                <View style={styles.mapaManualMapa}>
+                  <MapaLeaflet
+                    mode="editable"
+                    initialCoords={destinoCoords}
+                    onChange={(c: { lat: number; lng: number }) => setDestinoCoords(c)}
+                    height={260}
+                  />
+                </View>
+                {destinoCoords && (
+                  <Text style={styles.gpsConfirmado}>✅ Ubicación marcada — tocá "Confirmar" para continuar</Text>
+                )}
+              </View>
             )}
           </View>
         )}
@@ -583,6 +629,9 @@ const styles = StyleSheet.create({
   gpsBtnDisabled:      { opacity: 0.5 },
   gpsBtnText:          { color: '#EA580C', fontWeight: '700', fontSize: 13 },
   gpsConfirmado:       { color: '#059669', fontSize: 12, fontWeight: '600', marginTop: 8, textAlign: 'center' },
+  mapaManualBox:       { marginTop: 12, gap: 8 },
+  mapaManualMsg:       { color: '#92400E', fontSize: 13, fontWeight: '600' },
+  mapaManualMapa:      { borderRadius: 14, overflow: 'hidden' },
   modalOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' },
   modalBox:     { backgroundColor: '#FFF', borderRadius: 24, padding: 32, width: '80%', alignItems: 'center' },
   modalEmoji:   { fontSize: 48, marginBottom: 12 },

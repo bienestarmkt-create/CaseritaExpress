@@ -25,6 +25,7 @@ import * as Location from 'expo-location'
 import { useRouter } from 'expo-router'
 import { supabase } from '../../lib/supabase'
 import { watchPositionWeb, type GeoErrorTipo, type GeoSubscription } from '../../lib/geolocationWeb'
+import { distanciaMetros } from '../../lib/geo'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 
 // MapaRepartidor se importa por platform (native / web)
@@ -32,6 +33,13 @@ import MapaRepartidor from '../../components/MapaRepartidor'
 
 // ─── Tipos ────────────────────────────────────────────────────
 type Coords = { lat: number; lng: number }
+
+// Umbral de auditoría para "Marcar entregado": el GPS de celular en
+// ciudad tiene margen de error de 20-50m, así que 200m da margen de
+// sobra para no generar banderas falsas sobre repartidores honestos.
+// Solo deja registro (entrega_sospechosa) para revisión manual — nunca
+// bloquea la entrega.
+const UMBRAL_ENTREGA_SOSPECHOSA_M = 200
 
 type PedidoActivo = {
   id:                string
@@ -214,9 +222,17 @@ export default function MapaScreen() {
     if (!pedido) return
     setUpdatingId(pedido.id)
 
+    // Auditoría, no bloqueo: si tenemos ambas coordenadas y la distancia
+    // supera el umbral, se deja la bandera para revisión manual del admin.
+    // Si falta alguna coordenada (sin GPS, sin destino registrado) no se
+    // marca nada — no hay evidencia suficiente para sospechar.
+    const entregaSospechosa =
+      miCoords != null && destinoCoords != null &&
+      distanciaMetros(miCoords, destinoCoords) > UMBRAL_ENTREGA_SOSPECHOSA_M
+
     const { error } = await supabase
       .from('pedidos')
-      .update({ estado: 'entregado' })
+      .update({ estado: 'entregado', entrega_sospechosa: entregaSospechosa })
       .eq('id', pedido.id)
 
     if (!error) {

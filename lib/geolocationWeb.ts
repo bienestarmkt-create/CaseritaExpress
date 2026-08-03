@@ -40,3 +40,34 @@ export function watchPositionWeb(
 
   return { remove: () => navigator.geolocation.clearWatch(watchId) }
 }
+
+// Captura puntual (no watch) — para flujos de "un solo tiro" como marcar el
+// destino en carrito.tsx. Igual que watchPositionWeb, usa navigator.geolocation
+// directo (no expo-location) porque es lo único que dispara el popup real del
+// navegador. Resuelve null en cualquier falla (denegado, sin señal, timeout)
+// en vez de rechazar — el llamador solo necesita distinguir "hay coords" de
+// "no hay coords", no el motivo puntual.
+export function getCurrentPositionWeb(timeoutMs = 5000): Promise<{ lat: number; lng: number } | null> {
+  return new Promise(resolve => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      resolve(null)
+      return
+    }
+
+    let done = false
+    const finish = (v: { lat: number; lng: number } | null) => {
+      if (done) return
+      done = true
+      resolve(v)
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      pos => finish({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => finish(null),
+      { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 10000 },
+    )
+
+    // Respaldo: algunos navegadores no honran bien su propio `timeout`.
+    setTimeout(() => finish(null), timeoutMs + 500)
+  })
+}

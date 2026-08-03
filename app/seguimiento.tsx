@@ -2,7 +2,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { Animated, Linking, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import MapaRepartidor from '../components/MapaRepartidor';
+import MapaLeaflet from '../components/MapaLeaflet';
 import StarRating from '../components/StarRating';
 import { supabase } from '../lib/supabase';
 
@@ -333,7 +333,15 @@ export default function SeguimientoScreen() {
                 fijo del componente, mostrar el estado real de espera. */}
             {repartidorCoords ? (
               <View style={s.mapaBox}>
-                <MapaRepartidor coords={repartidorCoords} destinoCoords={destinoCoords} />
+                <MapaLeaflet
+                  mode="readonly"
+                  markers={[
+                    { id: 'repartidor', lat: repartidorCoords.lat, lng: repartidorCoords.lng, emoji: '🏍️', label: 'Repartidor' },
+                    ...(destinoCoords
+                      ? [{ id: 'destino', lat: destinoCoords.lat, lng: destinoCoords.lng, emoji: '📍', label: 'Dirección de entrega' }]
+                      : []),
+                  ]}
+                />
               </View>
             ) : (
               <View style={[s.mapaBox, s.mapaEsperando]}>
