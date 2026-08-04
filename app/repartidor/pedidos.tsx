@@ -97,6 +97,12 @@ export default function PedidosScreen() {
   const [miPromedio,   setMiPromedio]   = useState<{ promedio: number; total_ratings: number } | null>(null)
   const [errorMisPedidos,   setErrorMisPedidos]   = useState<string | null>(null)
   const [errorDisponibles, setErrorDisponibles]   = useState<string | null>(null)
+  const [miCiudad, setMiCiudad] = useState<string | null>(null)
+  // La suscripción Realtime del pool se registra una sola vez al montar
+  // y su closure queda fija con el miCiudad de ese momento (null). Un ref
+  // evita ese problema de stale closure — fetchDisponibles siempre lee
+  // la ciudad más reciente, la llame quien la llame.
+  const miCiudadRef = useRef<string | null>(null)
   const channelRef = useRef<RealtimeChannel | null>(null)
   const disponiblesChannelRef = useRef<RealtimeChannel | null>(null)
 
@@ -132,12 +138,20 @@ export default function PedidosScreen() {
   }, [userId])
 
   // ── Cargar pool de pedidos sin repartidor asignado ────────
-  const fetchDisponibles = useCallback(async () => {
+  // Solo pedidos de negocios en la misma ciudad del repartidor (!inner
+  // fuerza el join para poder filtrar por negocios.ciudad). Si todavía no
+  // sabemos la ciudad del repartidor, no se muestra nada — mejor una
+  // lista vacía momentánea que un pool con pedidos de otra ciudad.
+  const fetchDisponibles = useCallback(async (ciudad?: string | null) => {
+    const ciudadActual = ciudad ?? miCiudadRef.current
+    if (!ciudadActual) return
+
     const { data, error } = await supabase
       .from('pedidos')
-      .select('id, estado, total, direccion_entrega, created_at, usuarios!cliente_id(nombre), negocios(nombre)')
+      .select('id, estado, total, direccion_entrega, created_at, usuarios!cliente_id(nombre), negocios!inner(nombre, ciudad)')
       .is('repartidor_id', null)
       .eq('estado', 'confirmado')
+      .eq('negocios.ciudad', ciudadActual)
       .order('created_at', { ascending: false })
 
     if (error) {
@@ -164,7 +178,17 @@ export default function PedidosScreen() {
         if (!user) throw new Error('Sin sesión activa')
 
         setUserId(user.id)
-        await conTimeout(Promise.all([fetchPedidos(user.id), fetchDisponibles()]), 8000)
+
+        const { data: perfil } = await supabase
+          .from('usuarios')
+          .select('ciudad')
+          .eq('id', user.id)
+          .single()
+        const ciudadRepartidor = perfil?.ciudad ?? null
+        miCiudadRef.current = ciudadRepartidor
+        if (mounted) setMiCiudad(ciudadRepartidor)
+
+        await conTimeout(Promise.all([fetchPedidos(user.id), fetchDisponibles(ciudadRepartidor)]), 8000)
         if (!mounted) return
 
         // Cargar promedio propio del repartidor

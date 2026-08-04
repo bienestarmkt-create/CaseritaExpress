@@ -4,6 +4,8 @@ import { Tabs, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
 import { useCarrito } from '../context/CarritoContext';
+import { CiudadProvider, useCiudad } from '../context/CiudadContext';
+import SelectorCiudad from '../components/SelectorCiudad';
 import { registerPushToken } from '../lib/notifications';
 import { supabase } from '../lib/supabase';
 import { registerServiceWorker, setupPedidosRealtime, subscribeToPush } from '../lib/usePush';
@@ -118,62 +120,79 @@ export default function RootLayout() {
     );
   }
 
+  return (
+    <CiudadProvider>
+      <CarritoProvider>
+        <PushInitializer />
+        <AppShell rol={rol} />
+      </CarritoProvider>
+    </CiudadProvider>
+  );
+}
+
+function AppShell({ rol }: { rol: string | null }) {
+  const { ciudad, cargando } = useCiudad();
   const esRepartidor = rol === 'repartidor';
   const esAdmin      = rol === 'admin';
 
+  // Selector de ciudad de primer arranque — mismas superficies que ya
+  // navegan delivery/stay/eventos (todo menos repartidor).
+  if (!esRepartidor && !cargando && !ciudad) {
+    return <SelectorCiudad />;
+  }
+
   return (
-    <CarritoProvider>
-      <PushInitializer />
-      <Tabs
-        screenOptions={{
-          headerShown: false,
-          tabBarStyle: { backgroundColor: '#1E0A3C', borderTopColor: '#2D1B4E', height: 65, paddingBottom: 8 },
-          tabBarActiveTintColor: '#F97316',
-          tabBarInactiveTintColor: '#9CA3AF',
-        }}
-      >
-        {/* Siempre visible */}
-        <Tabs.Screen
-          name="index"
-          options={{ title: 'Inicio', tabBarIcon: ({ color, size }) => <Ionicons name="home-outline" size={size} color={color} /> }}
-        />
+    <Tabs
+      screenOptions={{
+        headerShown: false,
+        tabBarStyle: { backgroundColor: '#1E0A3C', borderTopColor: '#2D1B4E', height: 65, paddingBottom: 8 },
+        tabBarActiveTintColor: '#F97316',
+        tabBarInactiveTintColor: '#9CA3AF',
+      }}
+    >
+      {/* Siempre visible */}
+      <Tabs.Screen
+        name="index"
+        options={{ title: 'Inicio', tabBarIcon: ({ color, size }) => <Ionicons name="home-outline" size={size} color={color} /> }}
+      />
 
-        {/* Solo clientes */}
-        <Tabs.Screen name="delivery" options={{ title: 'Delivery', href: esRepartidor ? null : undefined, tabBarIcon: ({ color, size }) => <Ionicons name="bicycle-outline" size={size} color={color} /> }} />
-        <Tabs.Screen name="stay"     options={{ title: 'Stay',     href: esRepartidor ? null : undefined, tabBarIcon: ({ color, size }) => <Ionicons name="bed-outline" size={size} color={color} /> }} />
-        <Tabs.Screen name="eventos"  options={{ title: 'Eventos',  href: esRepartidor ? null : undefined, tabBarIcon: ({ color, size }) => <Ionicons name="musical-notes-outline" size={size} color={color} /> }} />
-        <Tabs.Screen name="carrito"  options={{ title: 'Carrito',  href: esRepartidor ? null : undefined, tabBarIcon: ({ color, size }) => <CarritoIcon color={color} size={size} /> }} />
+      {/* Solo clientes */}
+      <Tabs.Screen name="delivery" options={{ title: 'Delivery', href: esRepartidor ? null : undefined, tabBarIcon: ({ color, size }) => <Ionicons name="bicycle-outline" size={size} color={color} /> }} />
+      <Tabs.Screen name="stay"     options={{ title: 'Stay',     href: esRepartidor ? null : undefined, tabBarIcon: ({ color, size }) => <Ionicons name="bed-outline" size={size} color={color} /> }} />
+      <Tabs.Screen name="eventos"  options={{ title: 'Eventos',  href: esRepartidor ? null : undefined, tabBarIcon: ({ color, size }) => <Ionicons name="musical-notes-outline" size={size} color={color} /> }} />
+      <Tabs.Screen name="carrito"  options={{ title: 'Carrito',  href: esRepartidor ? null : undefined, tabBarIcon: ({ color, size }) => <CarritoIcon color={color} size={size} /> }} />
 
-        {/* Solo repartidores */}
-        <Tabs.Screen
-          name="repartidor"
-          options={{ title: 'Mis Entregas', href: esRepartidor ? undefined : null, tabBarIcon: ({ color, size }) => <Ionicons name="bicycle-outline" size={size} color={color} /> }}
-        />
+      {/* Solo repartidores */}
+      <Tabs.Screen
+        name="repartidor"
+        options={{ title: 'Mis Entregas', href: esRepartidor ? undefined : null, tabBarIcon: ({ color, size }) => <Ionicons name="bicycle-outline" size={size} color={color} /> }}
+      />
 
-        {/* Siempre visible */}
-        <Tabs.Screen
-          name="perfil"
-          options={{ title: 'Perfil', tabBarIcon: ({ color, size }) => <Ionicons name="person-outline" size={size} color={color} /> }}
-        />
+      {/* Siempre visible */}
+      <Tabs.Screen
+        name="perfil"
+        options={{ title: 'Perfil', tabBarIcon: ({ color, size }) => <Ionicons name="person-outline" size={size} color={color} /> }}
+      />
 
-        {/* Solo admins */}
-        <Tabs.Screen
-          name="admin"
-          options={{ title: 'Admin', href: esAdmin ? undefined : null, tabBarIcon: ({ color, size }) => <Ionicons name="settings-outline" size={size} color={color} /> }}
-        />
+      {/* Solo admins */}
+      <Tabs.Screen
+        name="admin"
+        options={{ title: 'Admin', href: esAdmin ? undefined : null, tabBarIcon: ({ color, size }) => <Ionicons name="settings-outline" size={size} color={color} /> }}
+      />
 
-        {/* Pantallas sin tab */}
-        <Tabs.Screen name="login"       options={{ href: null }} />
-        <Tabs.Screen name="anfitrion"   options={{ href: null }} />
-        <Tabs.Screen name="negocio"     options={{ href: null }} />
-        <Tabs.Screen name="seguimiento" options={{ href: null }} />
-        {/* pago.tsx deprecado — flujo viejo, ninguna pantalla navega aquí (ver deprecated header en app/pago.tsx). href:null se mantiene para no auto-registrarlo como tab visible. */}
-        <Tabs.Screen name="pago"        options={{ href: null }} />
-        <Tabs.Screen name="pago-qr"     options={{ href: null }} />
-        <Tabs.Screen name="mi-ticket"   options={{ href: null }} />
-        <Tabs.Screen name="mi-reserva"  options={{ href: null }} />
-      </Tabs>
-    </CarritoProvider>
+      {/* Pantallas sin tab */}
+      <Tabs.Screen name="login"       options={{ href: null }} />
+      <Tabs.Screen name="anfitrion"   options={{ href: null }} />
+      <Tabs.Screen name="negocio"     options={{ href: null }} />
+      <Tabs.Screen name="seguimiento" options={{ href: null }} />
+      {/* pago.tsx deprecado — flujo viejo, ninguna pantalla navega aquí (ver deprecated header en app/pago.tsx). href:null se mantiene para no auto-registrarlo como tab visible. */}
+      <Tabs.Screen name="pago"        options={{ href: null }} />
+      <Tabs.Screen name="pago-qr"     options={{ href: null }} />
+      <Tabs.Screen name="mi-ticket"   options={{ href: null }} />
+      <Tabs.Screen name="mi-reserva"  options={{ href: null }} />
+      <Tabs.Screen name="mi-boleto"   options={{ href: null }} />
+      <Tabs.Screen name="mis-boletos" options={{ href: null }} />
+    </Tabs>
   );
 }
 

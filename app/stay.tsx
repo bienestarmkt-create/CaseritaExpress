@@ -3,18 +3,21 @@ import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useCarrito } from '../context/CarritoContext';
+import { useCiudad, CIUDADES_DISPONIBLES } from '../context/CiudadContext';
 import { supabase } from '../lib/supabase';
 import { BrandColors } from '../constants/theme';
 
 const MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 const hoy = new Date();
 
-const CIUDADES = ['Todos', 'Tarija', 'La Paz', 'Santa Cruz', 'Cochabamba', 'Oruro', 'Potosí', 'Sucre', 'Trinidad', 'Cobija'];
+const CIUDADES = ['Todos', ...CIUDADES_DISPONIBLES];
 
 export default function StayScreen() {
   const router = useRouter();
   const { agregarItem, totalItems } = useCarrito();
-  const [filtroCiudad, setFiltroCiudad] = useState('Todos');
+  const { ciudad: ciudadGlobal } = useCiudad();
+  // Arranca en la ciudad activa del cliente (ver context/CiudadContext).
+  const [filtroCiudad, setFiltroCiudad] = useState(ciudadGlobal ?? 'Todos');
   const [soloOfertas, setSoloOfertas] = useState(false);
   const [alojamientoActivo, setAlojamientoActivo] = useState<string | null>(null);
   const [modalReserva, setModalReserva] = useState<any | null>(null);

@@ -24,6 +24,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   TextInput,
+  TouchableOpacity,
   RefreshControl,
   Platform,
   Alert,
@@ -48,6 +49,7 @@ type Negocio = {
   id:          string
   nombre:      string
   categoria?:  string
+  ciudad:      string
   activo:      boolean
   created_at:  string
   promedio?:   number | null      // promedio de calificación (de v_promedios_negocios)
@@ -73,8 +75,10 @@ function NegocioRow({
         <View style={rowStyles.infoText}>
           <Text style={rowStyles.nombre} numberOfLines={1}>{negocio.nombre}</Text>
           {negocio.categoria ? (
-            <Text style={rowStyles.categoria}>{negocio.categoria}</Text>
-          ) : null}
+            <Text style={rowStyles.categoria}>{negocio.categoria} · 📍 {negocio.ciudad}</Text>
+          ) : (
+            <Text style={rowStyles.categoria}>📍 {negocio.ciudad}</Text>
+          )}
           {/* Rating promedio */}
           {negocio.promedio != null ? (
             <View style={rowStyles.ratingRow}>
@@ -161,7 +165,9 @@ export default function NegociosAdminScreen() {
   const [loading,    setLoading]    = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [busqueda,   setBusqueda]   = useState('')
+  const [ciudadFiltro, setCiudadFiltro] = useState<'Todas' | 'Tarija' | 'Santa Cruz'>('Todas')
   const [toggling,   setToggling]   = useState<string | null>(null) // id del negocio en toggle
+  const [errorCarga, setErrorCarga] = useState<string | null>(null)
 
   // ── Cargar negocios + promedios ─────────────────────────────
   const fetchNegocios = useCallback(async (silent = false) => {
@@ -169,14 +175,18 @@ export default function NegociosAdminScreen() {
     const [{ data, error }, { data: promsData }] = await Promise.all([
       supabase
         .from('negocios')
-        .select('id, nombre, categoria, activo, created_at')
+        .select('id, nombre, categoria, ciudad, activo, created_at')
         .order('nombre', { ascending: true }),
       supabase
         .from('v_promedios_negocios')
         .select('negocio_id, promedio, total_ratings'),
     ])
 
-    if (!error && data) {
+    if (error) {
+      console.error('[admin/negocios] Error cargando negocios', error.message)
+      setErrorCarga('No se pudieron cargar los negocios. Revisá tu conexión.')
+    } else if (data) {
+      setErrorCarga(null)
       // Construir mapa de promedios para merge O(1)
       const pMap: Record<string, { promedio: number; total_ratings: number }> = {}
       for (const p of (promsData ?? [])) {
@@ -224,10 +234,11 @@ export default function NegociosAdminScreen() {
     setToggling(null)
   }
 
-  // ── Filtro por búsqueda ─────────────────────────────────────
+  // ── Filtro por búsqueda + ciudad ─────────────────────────────
   const negociosFiltrados = negocios.filter(n =>
-    n.nombre.toLowerCase().includes(busqueda.toLowerCase()) ||
-    (n.categoria ?? '').toLowerCase().includes(busqueda.toLowerCase())
+    (n.nombre.toLowerCase().includes(busqueda.toLowerCase()) ||
+     (n.categoria ?? '').toLowerCase().includes(busqueda.toLowerCase())) &&
+    (ciudadFiltro === 'Todas' || n.ciudad === ciudadFiltro)
   )
 
   const activos   = negociosFiltrados.filter(n => n.activo).length
@@ -267,7 +278,24 @@ export default function NegociosAdminScreen() {
             clearButtonMode="while-editing"
           />
         </View>
+        <View style={styles.ciudadFiltroRow}>
+          {(['Todas', 'Tarija', 'Santa Cruz'] as const).map(c => (
+            <TouchableOpacity
+              key={c}
+              style={[styles.ciudadFiltroChip, ciudadFiltro === c && styles.ciudadFiltroChipActivo]}
+              onPress={() => setCiudadFiltro(c)}
+            >
+              <Text style={[styles.ciudadFiltroText, ciudadFiltro === c && styles.ciudadFiltroTextActivo]}>{c}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       </View>
+
+      {errorCarga && (
+        <TouchableOpacity style={styles.errorBanner} onPress={() => fetchNegocios()}>
+          <Text style={styles.errorBannerText}>⚠️ {errorCarga} Tocá para reintentar.</Text>
+        </TouchableOpacity>
+      )}
 
       {/* Lista */}
       <FlatList
@@ -346,6 +374,13 @@ const styles = StyleSheet.create({
     color:         C.text,
     outlineStyle:  'none' as any,
   },
+  ciudadFiltroRow:      { flexDirection: 'row', gap: 8, marginTop: 10 },
+  ciudadFiltroChip:     { paddingVertical: 6, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1, borderColor: C.border },
+  ciudadFiltroChipActivo: { backgroundColor: C.primary, borderColor: C.primary },
+  ciudadFiltroText:     { fontSize: 12, fontWeight: '600', color: C.textLight },
+  ciudadFiltroTextActivo: { color: '#FFF' },
+  errorBanner: { backgroundColor: '#FEF3C7', marginHorizontal: 16, marginTop: 12, borderRadius: 10, padding: 12 },
+  errorBannerText: { fontSize: 13, color: '#92400E', fontWeight: '600' },
   list: { padding: 16, paddingBottom: 32 },
   empty: {
     alignItems:   'center',

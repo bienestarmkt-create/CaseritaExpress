@@ -5,6 +5,7 @@ import { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { BrandColors } from '../constants/theme';
+import { useCiudad, CIUDADES_DISPONIBLES } from '../context/CiudadContext';
 
 const VEHICULO_LABEL: Record<'moto' | 'bicicleta' | 'auto' | 'a pie', string> = {
   moto:      '🏍️ Moto',
@@ -21,8 +22,24 @@ const getEstadoColor = (estado: string) => {
   return '#9CA3AF';
 };
 
+// estado_pago es la columna canónica de estado de pago (pago_estado quedó
+// deprecada, ver app/pago.tsx) — reservas y entradas la muestran acá.
+const ESTADO_PAGO_LABEL: Record<string, string> = {
+  pendiente:         'Pendiente',
+  pagado_qr:         'Pagado',
+  cobrado_efectivo:  'Pagado (efectivo)',
+  liquidado:         'Pagado',
+};
+const ESTADO_PAGO_COLOR: Record<string, string> = {
+  pendiente:         '#F97316',
+  pagado_qr:         '#10B981',
+  cobrado_efectivo:  '#10B981',
+  liquidado:         '#10B981',
+};
+
 export default function PerfilScreen() {
   const router = useRouter();
+  const { ciudad, setCiudad } = useCiudad();
   const [seccionActiva, setSeccionActiva] = useState<string | null>(null);
   const [modalCerrar, setModalCerrar] = useState(false);
   const [usuario, setUsuario] = useState<any>(null);
@@ -121,10 +138,10 @@ export default function PerfilScreen() {
               .select('id, created_at, total, estado, negocios(nombre)')
               .eq('cliente_id', user.id).order('created_at', { ascending: false }),
             supabase.from('reservas')
-              .select('id, created_at, total, pago_estado, noches, fecha_entrada, alojamientos(nombre)')
+              .select('id, created_at, total, estado_pago, noches, fecha_entrada, alojamientos(nombre)')
               .eq('cliente_id', user.id).order('created_at', { ascending: false }),
             supabase.from('entradas')
-              .select('id, created_at, total, pago_estado, cantidad, eventos(nombre)')
+              .select('id, created_at, total, estado_pago, cantidad, eventos(nombre)')
               .eq('cliente_id', user.id).order('created_at', { ascending: false }),
           ]),
           8000
@@ -386,6 +403,32 @@ export default function PerfilScreen() {
 
       <ScrollView style={styles.body} showsVerticalScrollIndicator={false}>
 
+        <TouchableOpacity
+          style={styles.boletosBtn}
+          onPress={() => router.push('/mis-boletos' as any)}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.boletosBtnEmoji}>🎟️</Text>
+          <Text style={styles.boletosBtnText}>Ver mis boletos</Text>
+          <Text style={styles.boletosBtnArrow}>›</Text>
+        </TouchableOpacity>
+
+        <View style={styles.ciudadBox}>
+          <Text style={styles.ciudadBoxLabel}>📍 Tu ciudad</Text>
+          <View style={styles.ciudadBoxOpciones}>
+            {CIUDADES_DISPONIBLES.map(c => (
+              <TouchableOpacity
+                key={c}
+                style={[styles.ciudadChip, ciudad === c && styles.ciudadChipActivo]}
+                onPress={() => setCiudad(c)}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.ciudadChipText, ciudad === c && styles.ciudadChipTextActivo]}>{c}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
         {/* HISTORIAL — DELIVERY */}
         <TouchableOpacity style={styles.seccionHeader} onPress={() => toggleSeccion('pedidos')}>
           <View style={styles.seccionLeft}>
@@ -452,8 +495,8 @@ export default function PerfilScreen() {
                   </View>
                   <View style={styles.itemDerecha}>
                     <Text style={styles.itemTotal}>Bs. {r.total}</Text>
-                    <View style={[styles.estadoBadge, { backgroundColor: getEstadoColor(r.pago_estado) + '20' }]}>
-                      <Text style={[styles.estadoText, { color: getEstadoColor(r.pago_estado) }]}>{r.pago_estado}</Text>
+                    <View style={[styles.estadoBadge, { backgroundColor: (ESTADO_PAGO_COLOR[r.estado_pago] ?? '#9CA3AF') + '20' }]}>
+                      <Text style={[styles.estadoText, { color: ESTADO_PAGO_COLOR[r.estado_pago] ?? '#9CA3AF' }]}>{ESTADO_PAGO_LABEL[r.estado_pago] ?? r.estado_pago}</Text>
                     </View>
                   </View>
                 </View>
@@ -490,8 +533,8 @@ export default function PerfilScreen() {
                   </View>
                   <View style={styles.itemDerecha}>
                     <Text style={styles.itemTotal}>Bs. {e.total}</Text>
-                    <View style={[styles.estadoBadge, { backgroundColor: getEstadoColor(e.pago_estado) + '20' }]}>
-                      <Text style={[styles.estadoText, { color: getEstadoColor(e.pago_estado) }]}>{e.pago_estado}</Text>
+                    <View style={[styles.estadoBadge, { backgroundColor: (ESTADO_PAGO_COLOR[e.estado_pago] ?? '#9CA3AF') + '20' }]}>
+                      <Text style={[styles.estadoText, { color: ESTADO_PAGO_COLOR[e.estado_pago] ?? '#9CA3AF' }]}>{ESTADO_PAGO_LABEL[e.estado_pago] ?? e.estado_pago}</Text>
                     </View>
                   </View>
                 </View>
@@ -609,6 +652,17 @@ const styles = StyleSheet.create({
   btnGuardarPerfilText: { color: '#FFF', fontWeight: '800', fontSize: 16 },
   btnDisabled:          { opacity: 0.6 },
   // Cliente — Historial
+  boletosBtn:          { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#6B21A8', marginHorizontal: 16, marginTop: 16, padding: 16, borderRadius: 16, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 6 },
+  boletosBtnEmoji:     { fontSize: 22 },
+  boletosBtnText:      { flex: 1, color: '#FFF', fontSize: 15, fontWeight: '800' },
+  boletosBtnArrow:     { color: '#FFF', fontSize: 20, fontWeight: '300' },
+  ciudadBox:           { backgroundColor: '#FFF', marginHorizontal: 16, marginTop: 12, padding: 16, borderRadius: 16, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 6 },
+  ciudadBoxLabel:      { fontSize: 13, fontWeight: '700', color: '#1E0A3C', marginBottom: 10 },
+  ciudadBoxOpciones:   { flexDirection: 'row', gap: 8 },
+  ciudadChip:          { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20, borderWidth: 1.5, borderColor: '#E5E7EB' },
+  ciudadChipActivo:    { backgroundColor: BrandColors.primary, borderColor: BrandColors.primary },
+  ciudadChipText:      { fontSize: 13, fontWeight: '600', color: '#6B7280' },
+  ciudadChipTextActivo:{ color: '#FFF' },
   seccionHeader:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#FFF', marginHorizontal: 16, marginTop: 12, padding: 16, borderRadius: 16, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 6 },
   seccionLeft:         { flexDirection: 'row', alignItems: 'center', gap: 10 },
   seccionEmoji:        { fontSize: 20 },

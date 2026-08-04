@@ -3,19 +3,22 @@ import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useCarrito } from '../context/CarritoContext';
+import { useCiudad, CIUDADES_DISPONIBLES } from '../context/CiudadContext';
 import { supabase } from '../lib/supabase';
 import { BrandColors } from '../constants/theme';
 
-const CIUDADES = ['Todas', 'Tarija', 'La Paz', 'Santa Cruz', 'Cochabamba', 'Oruro', 'Potosí', 'Sucre', 'Trinidad', 'Cobija'];
+const CIUDADES = ['Todas', ...CIUDADES_DISPONIBLES];
 
 export default function EventosScreen() {
   const router = useRouter();
   const { agregarItem, totalItems } = useCarrito();
+  const { ciudad: ciudadGlobal } = useCiudad();
   const [eventos, setEventos] = useState<any[]>([]);
   const [cargando, setCargando] = useState(true);
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
   const [categoriaActiva, setCategoriaActiva] = useState('Todos');
-  const [ciudadActiva, setCiudadActiva] = useState('Todas');
+  // Arranca en la ciudad activa del cliente (ver context/CiudadContext).
+  const [ciudadActiva, setCiudadActiva] = useState(ciudadGlobal ?? 'Todas');
   const [eventoActivo, setEventoActivo] = useState<string | null>(null);
   const [ticketsSeleccionados, setTicketsSeleccionados] = useState<{[key: string]: number}>({});
 
