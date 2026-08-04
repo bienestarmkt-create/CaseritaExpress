@@ -25,18 +25,24 @@ export default function MiTicketScreen() {
 
   const [evento, setEvento] = useState<EventoDetalle | null>(null);
   const [cargando, setCargando] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
     async function cargarEvento() {
       if (!pedidoId) { setCargando(false); return; }
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('entradas')
         .select('eventos(nombre, fecha_evento, lugar)')
         .eq('id', pedidoId)
         .single();
-      const ev = (data as any)?.eventos;
-      if (ev) {
-        setEvento({ nombre: ev.nombre, fecha_evento: ev.fecha_evento ?? null, lugar: ev.lugar ?? null });
+      if (error) {
+        console.error('[mi-ticket] Error cargando entrada', pedidoId, error.message);
+        setErrorMsg('No pudimos cargar los detalles de tu entrada.');
+      } else {
+        const ev = (data as any)?.eventos;
+        if (ev) {
+          setEvento({ nombre: ev.nombre, fecha_evento: ev.fecha_evento ?? null, lugar: ev.lugar ?? null });
+        }
       }
       setCargando(false);
     }
@@ -49,9 +55,15 @@ export default function MiTicketScreen() {
     <ScrollView style={s.scroll} showsVerticalScrollIndicator={false}>
       <LinearGradient colors={['#1E0A3C', '#6B21A8']} style={s.header}>
         <Text style={s.emoji}>🎟️</Text>
-        <Text style={s.titulo}>¡Entrada confirmada!</Text>
-        <Text style={s.subtitulo}>Tu pago fue verificado exitosamente</Text>
+        <Text style={s.titulo}>¡Entrada registrada!</Text>
+        <Text style={s.subtitulo}>Pagás en efectivo directo con el organizador</Text>
       </LinearGradient>
+
+      {errorMsg && (
+        <View style={s.avisoBox}>
+          <Text style={s.avisoText}>⚠️ {errorMsg}</Text>
+        </View>
+      )}
 
       <View style={s.ticketCard}>
         {/* Borde dentado superior */}
@@ -119,6 +131,8 @@ const s = StyleSheet.create({
   emoji:            { fontSize: 64, marginBottom: 12 },
   titulo:           { fontSize: 26, fontWeight: '900', color: '#FFF', textAlign: 'center', marginBottom: 8 },
   subtitulo:        { fontSize: 14, color: '#DDD6FE', textAlign: 'center' },
+  avisoBox:         { backgroundColor: '#FEF3C7', marginHorizontal: 20, marginTop: 12, borderRadius: 10, padding: 10 },
+  avisoText:        { fontSize: 12, color: '#92400E', textAlign: 'center' },
   ticketCard:       { backgroundColor: '#FFF', marginHorizontal: 20, marginTop: -20, borderRadius: 20, elevation: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.12, shadowRadius: 12, overflow: 'hidden' },
   dentadoRow:       { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 4, backgroundColor: '#F8F7FF' },
   diente:           { width: 14, height: 14, borderRadius: 7, backgroundColor: '#F8F7FF' },

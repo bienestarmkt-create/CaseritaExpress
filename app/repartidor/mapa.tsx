@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ActivityIndicator,
+  Alert,
   Platform,
   ScrollView,
   StyleSheet,
@@ -219,11 +220,36 @@ export default function MapaScreen() {
       .update({ estado: 'entregado' })
       .eq('id', pedido.id)
 
-    if (!error) {
-      setPedido(null)
-      router.push('/repartidor/pedidos' as any)
+    if (error) {
+      console.error('[repartidor/mapa] Error al marcar entregado', pedido.id, error.message)
+      Alert.alert('No se pudo marcar como entregado', error.message)
+      setUpdatingId(null)
+      return
     }
 
+    // Si el pedido se pagó por QR, tiene un boleto emitido (ver
+    // supabase/functions/validar-comprobante) — lo marcamos usado acá.
+    // Los pedidos en efectivo nunca pasan por validar-comprobante, así
+    // que no tienen boleto: no encontrar uno es esperado, no un error.
+    const { data: boletoDelivery } = await supabase
+      .from('boletos')
+      .select('codigo')
+      .eq('referencia_id', pedido.id)
+      .eq('tipo', 'delivery')
+      .maybeSingle()
+
+    if (boletoDelivery) {
+      const { error: boletoErr } = await supabase.rpc('marcar_boleto_usado', { p_codigo: boletoDelivery.codigo })
+      if (boletoErr) {
+        console.error('[repartidor/mapa] Error marcando boleto usado', boletoDelivery.codigo, boletoErr.message)
+        // No bloquea el flujo: el pedido ya quedó 'entregado', que es lo
+        // que le importa al cliente y al negocio. El boleto sin marcar
+        // queda como dato para revisar, no como entrega fallida.
+      }
+    }
+
+    setPedido(null)
+    router.push('/repartidor/pedidos' as any)
     setUpdatingId(null)
   }
 

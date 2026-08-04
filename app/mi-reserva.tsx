@@ -5,12 +5,12 @@ import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View
 import { supabase } from '../lib/supabase';
 
 type ReservaDetalle = {
-  nombre_alojamiento: string | null;
   fecha_entrada: string | null;
   fecha_salida: string | null;
   noches: number | null;
   huespedes: number | null;
   codigo_referencia: string | null;
+  alojamientos: { nombre: string } | null;
 };
 
 function formatFecha(fecha: string): string {
@@ -28,31 +28,43 @@ export default function MiReservaScreen() {
 
   const [reserva, setReserva] = useState<ReservaDetalle | null>(null);
   const [cargando, setCargando] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
     async function cargarReserva() {
       if (!pedidoId) { setCargando(false); return; }
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('reservas')
-        .select('nombre_alojamiento, fecha_entrada, fecha_salida, noches, huespedes, codigo_referencia')
+        .select('fecha_entrada, fecha_salida, noches, huespedes, codigo_referencia, alojamientos(nombre)')
         .eq('id', pedidoId)
         .single();
-      if (data) setReserva(data as ReservaDetalle);
+      if (error) {
+        console.error('[mi-reserva] Error cargando reserva', pedidoId, error.message);
+        setErrorMsg('No pudimos cargar los detalles de tu reserva.');
+      } else if (data) {
+        setReserva(data as unknown as ReservaDetalle);
+      }
       setCargando(false);
     }
     cargarReserva();
   }, [pedidoId]);
 
-  const nombreMostrado = reserva?.nombre_alojamiento ?? nombreAlojamiento ?? 'Alojamiento';
+  const nombreMostrado = reserva?.alojamientos?.nombre ?? nombreAlojamiento ?? 'Alojamiento';
   const codigoMostrado = reserva?.codigo_referencia ?? referenciaPago ?? '—';
 
   return (
     <ScrollView style={s.scroll} showsVerticalScrollIndicator={false}>
       <LinearGradient colors={['#1E0A3C', '#6B21A8']} style={s.header}>
         <Text style={s.emoji}>🏡</Text>
-        <Text style={s.titulo}>¡Reserva confirmada!</Text>
-        <Text style={s.subtitulo}>Tu pago fue verificado exitosamente</Text>
+        <Text style={s.titulo}>¡Reserva registrada!</Text>
+        <Text style={s.subtitulo}>Pagás en efectivo directo con el anfitrión</Text>
       </LinearGradient>
+
+      {errorMsg && (
+        <View style={s.avisoBox}>
+          <Text style={s.avisoText}>⚠️ {errorMsg}</Text>
+        </View>
+      )}
 
       <View style={s.reservaCard}>
         <View style={s.dentadoRow}>
@@ -139,6 +151,8 @@ const s = StyleSheet.create({
   emoji:              { fontSize: 64, marginBottom: 12 },
   titulo:             { fontSize: 26, fontWeight: '900', color: '#FFF', textAlign: 'center', marginBottom: 8 },
   subtitulo:          { fontSize: 14, color: '#DDD6FE', textAlign: 'center' },
+  avisoBox:           { backgroundColor: '#FEF3C7', marginHorizontal: 20, marginTop: 12, borderRadius: 10, padding: 10 },
+  avisoText:          { fontSize: 12, color: '#92400E', textAlign: 'center' },
   reservaCard:        { backgroundColor: '#FFF', marginHorizontal: 20, marginTop: -20, borderRadius: 20, elevation: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.12, shadowRadius: 12, overflow: 'hidden' },
   dentadoRow:         { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 4, backgroundColor: '#F8F7FF' },
   diente:             { width: 14, height: 14, borderRadius: 7, backgroundColor: '#F8F7FF' },

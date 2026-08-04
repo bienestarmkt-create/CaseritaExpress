@@ -3,6 +3,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Platform,
   ScrollView,
@@ -23,13 +24,11 @@ function formatTimer(seg: number): string {
 
 export default function PagoQrScreen() {
   const router = useRouter();
-  const { pedidoId, total, referenciaPago, tipo, nombreEvento, nombreAlojamiento } = useLocalSearchParams<{
+  const { pedidoId, total, referenciaPago, tipo } = useLocalSearchParams<{
     pedidoId: string;
     total: string;
     referenciaPago: string;
     tipo: string;
-    nombreEvento: string;
-    nombreAlojamiento: string;
   }>();
 
   const [segundos, setSegundos]       = useState(1800);
@@ -123,15 +122,15 @@ export default function PagoQrScreen() {
         .getPublicUrl(filePath);
       const publicUrl = urlData.publicUrl;
 
-      await supabase
-        .from('pedidos')
-        .update({ comprobante_url: publicUrl })
-        .eq('id', pedidoId);
-
       // ── Llamar Edge Function de validación ────────────────────
-      // La función es la única que persiste el resultado en `pedidos`
-      // (estado, estado_pago, comprobante_validado). Este cliente solo
-      // muestra el resultado que ella devuelve.
+      // La función es la única que persiste el resultado (estado,
+      // estado_pago, comprobante_validado, y ahora también emite el
+      // boleto en la misma transacción). Este cliente solo muestra el
+      // resultado que ella devuelve — ya no escribe comprobante_url acá:
+      // antes este update apuntaba siempre a `pedidos`, lo cual rompía
+      // en silencio para tipo stay/evento (el id era de reservas/entradas,
+      // el update no tocaba ninguna fila). La función ahora lo hace
+      // contra la tabla correcta según `tipo`.
       paso = 'invocar_validar_comprobante';
       setValidacion('validando');
 
@@ -139,9 +138,9 @@ export default function PagoQrScreen() {
         'validar-comprobante',
         {
           body: {
-            pedidoId,
-            comprobante_url:  filePath,
-            total_esperado:   Number(total),
+            tipo,
+            id: pedidoId,
+            comprobante_url: filePath,
           },
         }
       );
@@ -151,11 +150,17 @@ export default function PagoQrScreen() {
       if (resultado?.valido) {
         clearInterval(intervalRef.current!);
         setValidacion('aprobado');
+        const codigoBoleto = resultado?.boleto?.codigo;
         setTimeout(() => {
-          if (tipo === 'evento') {
-            router.replace({ pathname: '/mi-ticket', params: { pedidoId, referenciaPago, nombreEvento } });
-          } else if (tipo === 'stay') {
-            router.replace({ pathname: '/mi-reserva', params: { pedidoId, referenciaPago, nombreAlojamiento } });
+          if (tipo === 'evento' || tipo === 'stay') {
+            if (codigoBoleto) {
+              router.replace({ pathname: '/mi-boleto' as any, params: { codigo: codigoBoleto } });
+            } else {
+              // No debería pasar (la función solo confirma valido:true si
+              // el boleto se emitió), pero por las dudas no dejamos al
+              // cliente en una pantalla rota sin explicación.
+              router.replace('/mis-boletos' as any);
+            }
           } else {
             router.replace({ pathname: '/seguimiento', params: { pedidoId } });
           }

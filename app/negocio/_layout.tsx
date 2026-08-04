@@ -43,10 +43,11 @@ const C = {
 
 // ─── Tabs de navegación ───────────────────────────────────────
 const NAV_TABS = [
-  { label: 'Pedidos',        route: '/negocio/pedidos',       icon: '📦', mobileLabel: 'Pedidos'  },
-  { label: 'Menú',           route: '/negocio/menu',          icon: '🍽️', mobileLabel: 'Menú'     },
-  { label: 'Fotos',          route: '/negocio/fotos',         icon: '📸', mobileLabel: 'Fotos'    },
-  { label: 'Estadísticas',   route: '/negocio/estadisticas',  icon: '📊', mobileLabel: 'Stats'    },
+  { label: 'Pedidos',        route: '/negocio/pedidos',        icon: '📦', mobileLabel: 'Pedidos'  },
+  { label: 'Menú',           route: '/negocio/menu',           icon: '🍽️', mobileLabel: 'Menú'     },
+  { label: 'Fotos',          route: '/negocio/fotos',          icon: '📸', mobileLabel: 'Fotos'    },
+  { label: 'Validar boleto', route: '/negocio/validar-boleto', icon: '🎟️', mobileLabel: 'Boletos'  },
+  { label: 'Estadísticas',   route: '/negocio/estadisticas',   icon: '📊', mobileLabel: 'Stats'    },
 ] as const
 
 export default function NegocioLayout() {
