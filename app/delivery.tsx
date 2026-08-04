@@ -3,7 +3,7 @@ import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useCarrito } from '../context/CarritoContext';
-import { useCiudad, CIUDADES_DISPONIBLES } from '../context/CiudadContext';
+import { useCiudad } from '../context/CiudadContext';
 import StarRating from '../components/StarRating';
 import { supabase } from '../lib/supabase';
 
@@ -16,12 +16,12 @@ const CATEGORIAS = [
   { id: 6, nombre: 'Heladerías', emoji: '🍦' },
 ];
 
-const CIUDADES = ['Todas', ...CIUDADES_DISPONIBLES];
-
 export default function DeliveryScreen() {
   const router = useRouter();
   const { agregarItem, quitarItem, getCantidad, totalItems } = useCarrito();
-  const { ciudad: ciudadGlobal } = useCiudad();
+  const { ciudad: ciudadGlobal, ciudadesActivas } = useCiudad();
+  // Ciudades activas reales (tabla `ciudades`) — ya no una lista fija.
+  const CIUDADES = ['Todas', ...ciudadesActivas];
   const [busqueda, setBusqueda] = useState('');
   const [categoriaActiva, setCategoriaActiva] = useState('Restaurantes');
   // Arranca en la ciudad activa del cliente (ver context/CiudadContext) —
@@ -58,7 +58,7 @@ export default function DeliveryScreen() {
             supabase.from('negocios').select('*').eq('activo', true),
             supabase.from('productos').select('*').eq('disponible', true),
             supabase.from('v_promedios_negocios').select('negocio_id, promedio, total_ratings'),
-            supabase.from('tarifas_envio').select('ciudad, tarifa_qr'),
+            supabase.from('ciudades').select('nombre, tarifa_envio_qr'),
           ]),
           timeout,
         ]);
@@ -72,11 +72,12 @@ export default function DeliveryScreen() {
         pMap[p.negocio_id] = { promedio: Number(p.promedio), total_ratings: Number(p.total_ratings) };
       }
       setPromedios(pMap);
-      // Mapa ciudad → tarifa de envío QR (ver lib/totales.ts) — reemplaza
-      // el "Bs. 8 envío" que estaba hardcodeado en la card.
+      // Mapa ciudad → tarifa de envío QR (ver lib/totales.ts). Se
+      // muestra la de QR acá (la más barata) — el desglose completo
+      // (qr vs. efectivo) se ve recién en el carrito.
       const tMap: Record<string, number> = {};
       for (const t of (tarifasData ?? [])) {
-        tMap[t.ciudad] = Number(t.tarifa_qr);
+        if (t.tarifa_envio_qr != null) tMap[t.nombre] = Number(t.tarifa_envio_qr);
       }
       setTarifasEnvio(tMap);
     } catch (e: any) {

@@ -5,7 +5,7 @@ import { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { BrandColors } from '../constants/theme';
-import { useCiudad, CIUDADES_DISPONIBLES } from '../context/CiudadContext';
+import { useCiudad } from '../context/CiudadContext';
 
 const VEHICULO_LABEL: Record<'moto' | 'bicicleta' | 'auto' | 'a pie', string> = {
   moto:      '🏍️ Moto',
@@ -39,7 +39,7 @@ const ESTADO_PAGO_COLOR: Record<string, string> = {
 
 export default function PerfilScreen() {
   const router = useRouter();
-  const { ciudad, setCiudad } = useCiudad();
+  const { ciudad, ciudadesActivas, setCiudad } = useCiudad();
   const [seccionActiva, setSeccionActiva] = useState<string | null>(null);
   const [modalCerrar, setModalCerrar] = useState(false);
   const [usuario, setUsuario] = useState<any>(null);
@@ -416,7 +416,7 @@ export default function PerfilScreen() {
         <View style={styles.ciudadBox}>
           <Text style={styles.ciudadBoxLabel}>📍 Tu ciudad</Text>
           <View style={styles.ciudadBoxOpciones}>
-            {CIUDADES_DISPONIBLES.map(c => (
+            {ciudadesActivas.map(c => (
               <TouchableOpacity
                 key={c}
                 style={[styles.ciudadChip, ciudad === c && styles.ciudadChipActivo]}

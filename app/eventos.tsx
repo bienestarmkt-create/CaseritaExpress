@@ -3,16 +3,16 @@ import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useCarrito } from '../context/CarritoContext';
-import { useCiudad, CIUDADES_DISPONIBLES } from '../context/CiudadContext';
+import { useCiudad } from '../context/CiudadContext';
 import { supabase } from '../lib/supabase';
 import { BrandColors } from '../constants/theme';
-
-const CIUDADES = ['Todas', ...CIUDADES_DISPONIBLES];
 
 export default function EventosScreen() {
   const router = useRouter();
   const { agregarItem, totalItems } = useCarrito();
-  const { ciudad: ciudadGlobal } = useCiudad();
+  const { ciudad: ciudadGlobal, ciudadesActivas } = useCiudad();
+  // Ciudades activas reales (tabla `ciudades`) — ya no una lista fija.
+  const CIUDADES = ['Todas', ...ciudadesActivas];
   const [eventos, setEventos] = useState<any[]>([]);
   const [cargando, setCargando] = useState(true);
   const [errorCarga, setErrorCarga] = useState<string | null>(null);

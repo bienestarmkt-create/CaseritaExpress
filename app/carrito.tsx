@@ -6,7 +6,7 @@ import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, Touc
 import { useCarrito } from '../context/CarritoContext';
 import { supabase } from '../lib/supabase';
 import { sendPushTo } from '../lib/usePush';
-import { obtenerTarifaEnvio } from '../lib/totales';
+import { obtenerTarifasEnvio, type TarifasCiudad } from '../lib/totales';
 import { BrandColors } from '../constants/theme';
 
 // Formato: CE-PED-XXXXXXXX (primeros 8 chars del UUID en mayúsculas)
@@ -47,24 +47,34 @@ export default function CarritoScreen() {
   const [capturandoGPS, setCapturandoGPS]       = useState(false);
   const [mostrarErrorDir, setMostrarErrorDir]   = useState(false);
 
-  const [costoEnvio, setCostoEnvio]   = useState(0);
-  const [errorTarifa, setErrorTarifa] = useState<string | null>(null);
+  const [tarifasEnvio, setTarifasEnvio] = useState<TarifasCiudad | null>(null);
+  const [errorTarifa, setErrorTarifa]   = useState<string | null>(null);
 
   const tieneDelivery    = items.some(i => i.tipo === 'delivery');
   const subtotal         = items.reduce((acc, i) => acc + i.precio * i.cantidad, 0);
+  // Costo real del envío para el método de pago elegido — las dos
+  // tarifas ya están cargadas juntas (ver efecto de abajo), acá solo se
+  // elige cuál mostrar/cobrar.
+  const costoEnvio = tieneDelivery && tarifasEnvio
+    ? (metodoPago === 'qr' ? tarifasEnvio.qr : tarifasEnvio.efectivo) ?? 0
+    : 0;
+  const ahorroQr = tarifasEnvio?.qr != null && tarifasEnvio?.efectivo != null
+    ? tarifasEnvio.efectivo - tarifasEnvio.qr
+    : 0;
   const total             = subtotal + costoEnvio;
   const tiposEnCarrito   = [...new Set(items.map(i => i.tipo))];
   const negocioDeliveryId = items.find(i => i.tipo === 'delivery')?.negocio_id;
 
-  // Costo de envío real desde tarifas_envio, por ciudad del negocio —
-  // nunca hardcodeado acá (ver lib/totales.ts). Solo aplica si hay
-  // delivery en el carrito; Stay y Eventos nunca lo tienen.
+  // Tarifas de envío reales desde `ciudades`, por ciudad del negocio —
+  // nunca hardcodeadas acá (ver lib/totales.ts). Se cargan las dos
+  // (qr y efectivo) de una vez: hace falta la de efectivo igual aunque
+  // el método elegido sea qr, para el mensaje de "ahorrás Bs. X".
   useEffect(() => {
     let cancelado = false;
 
-    async function cargarTarifa() {
+    async function cargarTarifas() {
       if (!tieneDelivery) {
-        setCostoEnvio(0);
+        setTarifasEnvio(null);
         setErrorTarifa(null);
         return;
       }
@@ -75,21 +85,24 @@ export default function CarritoScreen() {
         if (data?.ciudad) ciudad = data.ciudad;
       }
 
-      const { tarifa, error } = await obtenerTarifaEnvio(ciudad, metodoPago);
+      const { tarifas, error } = await obtenerTarifasEnvio(ciudad);
       if (cancelado) return;
 
-      if (error || tarifa == null) {
+      if (error || !tarifas) {
         setErrorTarifa(error ?? 'No se pudo cargar el costo de envío');
-        setCostoEnvio(0);
+        setTarifasEnvio(null);
       } else {
         setErrorTarifa(null);
-        setCostoEnvio(tarifa);
+        setTarifasEnvio(tarifas);
       }
     }
 
-    cargarTarifa();
+    cargarTarifas();
     return () => { cancelado = true; };
-  }, [tieneDelivery, metodoPago, negocioDeliveryId]);
+    // metodoPago no es dependencia: ahora se cargan las dos tarifas
+    // juntas, cuál se cobra se decide en el cálculo de costoEnvio de
+    // arriba, no en este fetch.
+  }, [tieneDelivery, negocioDeliveryId]);
 
   const capturarUbicacion = async () => {
     setCapturandoGPS(true);
@@ -404,9 +417,12 @@ export default function CarritoScreen() {
                     <Text style={styles.metodoBanco}>BancoSol</Text>
                   </Text>
                   <View style={styles.metodoChips}>
-                    <Text style={styles.chipVerde}>Envío Bs. 8</Text>
+                    <Text style={styles.chipVerde}>Envío Bs. {tarifasEnvio?.qr ?? '—'}</Text>
                     <Text style={styles.chipGris}>✓ Confirmación automática</Text>
                   </View>
+                  {ahorroQr > 0 && (
+                    <Text style={styles.ahorroQrTexto}>💚 Pagando con QR ahorrás Bs. {ahorroQr} de envío</Text>
+                  )}
                 </View>
                 <View style={[styles.radioOuter, metodoPago === 'qr' && styles.radioOuterActivo]}>
                   {metodoPago === 'qr' && <View style={styles.radioInner} />}
@@ -423,7 +439,7 @@ export default function CarritoScreen() {
               <View style={styles.metodoRow}>
                 <View style={styles.metodoTextos}>
                   <Text style={styles.metodoNombreEfectivo}>💵  Efectivo al repartidor</Text>
-                  <Text style={styles.chipGris}>Envío Bs. 12</Text>
+                  <Text style={styles.chipGris}>Envío Bs. {tarifasEnvio?.efectivo ?? '—'}</Text>
                 </View>
                 <View style={[styles.radioOuter, metodoPago === 'efectivo' && styles.radioOuterActivo]}>
                   {metodoPago === 'efectivo' && <View style={styles.radioInner} />}
@@ -610,6 +626,7 @@ const styles = StyleSheet.create({
   metodoChips:  { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
   chipVerde:    { fontSize: 12, color: '#16A34A', fontWeight: '600' },
   chipGris:     { fontSize: 12, color: '#9CA3AF' },
+  ahorroQrTexto: { fontSize: 12, color: '#16A34A', fontWeight: '700', marginTop: 6 },
   badgeRecomendado: {
     position: 'absolute', top: -1, right: -1,
     backgroundColor: '#F97316', borderTopRightRadius: 10, borderBottomLeftRadius: 10,

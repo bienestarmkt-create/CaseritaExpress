@@ -1,18 +1,20 @@
 /**
  * components/SelectorCiudad.tsx
  * Selector de ciudad de primer arranque — pantalla completa, se muestra
- * una sola vez (hasta que el cliente la cambie desde perfil.tsx).
+ * una sola vez (hasta que el cliente la cambie desde perfil.tsx), o de
+ * nuevo si la ciudad guardada dejó de estar activa.
  */
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { CIUDADES_DISPONIBLES, useCiudad, type Ciudad } from '../context/CiudadContext';
+import { Text, TouchableOpacity, View, StyleSheet } from 'react-native';
+import { useCiudad } from '../context/CiudadContext';
 
-const EMOJI_CIUDAD: Record<Ciudad, string> = {
+const EMOJI_CIUDAD: Record<string, string> = {
   Tarija: '🏞️',
   'Santa Cruz': '🌴',
 };
+const EMOJI_DEFAULT = '📍';
 
 export default function SelectorCiudad() {
-  const { setCiudad } = useCiudad();
+  const { ciudadesActivas, error, setCiudad } = useCiudad();
 
   return (
     <View style={s.container}>
@@ -20,14 +22,20 @@ export default function SelectorCiudad() {
       <Text style={s.titulo}>¿Desde dónde nos visitás?</Text>
       <Text style={s.subtitulo}>Te mostramos negocios, alojamientos y eventos de tu ciudad</Text>
 
-      <View style={s.opciones}>
-        {CIUDADES_DISPONIBLES.map(c => (
-          <TouchableOpacity key={c} style={s.opcion} onPress={() => setCiudad(c)} activeOpacity={0.8}>
-            <Text style={s.opcionEmoji}>{EMOJI_CIUDAD[c]}</Text>
-            <Text style={s.opcionTexto}>{c}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+      {error ? (
+        <Text style={s.errorTexto}>⚠️ {error}</Text>
+      ) : ciudadesActivas.length === 0 ? (
+        <Text style={s.errorTexto}>No hay ciudades activas por el momento.</Text>
+      ) : (
+        <View style={s.opciones}>
+          {ciudadesActivas.map(c => (
+            <TouchableOpacity key={c} style={s.opcion} onPress={() => setCiudad(c)} activeOpacity={0.8}>
+              <Text style={s.opcionEmoji}>{EMOJI_CIUDAD[c] ?? EMOJI_DEFAULT}</Text>
+              <Text style={s.opcionTexto}>{c}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
 
       <Text style={s.hint}>Podés cambiarla después desde tu perfil</Text>
     </View>
@@ -39,6 +47,7 @@ const s = StyleSheet.create({
   emoji: { fontSize: 56, marginBottom: 8 },
   titulo: { fontSize: 22, fontWeight: '900', color: '#FFF', textAlign: 'center' },
   subtitulo: { fontSize: 14, color: '#C4B5FD', textAlign: 'center', marginTop: 4, marginBottom: 24 },
+  errorTexto: { fontSize: 13, color: '#FCA5A5', textAlign: 'center', marginBottom: 12 },
   opciones: { width: '100%', gap: 12 },
   opcion: {
     flexDirection: 'row', alignItems: 'center', gap: 14,

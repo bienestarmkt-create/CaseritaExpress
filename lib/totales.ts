@@ -33,29 +33,50 @@ export function armarDesglose(
   };
 }
 
-// Trae la tarifa de envío real de tarifas_envio para la ciudad dada. Si
-// no hay fila para esa ciudad, no inventa un número — devuelve null y el
-// llamador decide cómo avisar (nunca un fallback silencioso a un valor
-// hardcodeado).
+export type TarifasCiudad = {
+  qr:       number | null;
+  efectivo: number | null;
+};
+
+// Trae las dos tarifas de envío (qr / efectivo) de `ciudades` para la
+// ciudad dada — única fuente de verdad, ya no `tarifas_envio` (deprecada
+// y eliminada, ver supabase/migrations/20260805000000_tabla_ciudades.sql).
+// Si no hay fila para esa ciudad, no inventa un número — devuelve null y
+// el llamador decide cómo avisar (nunca un fallback silencioso).
+export async function obtenerTarifasEnvio(
+  ciudad: string,
+): Promise<{ tarifas: TarifasCiudad | null; error: string | null }> {
+  const { data, error } = await supabase
+    .from('ciudades')
+    .select('tarifa_envio_qr, tarifa_envio_efectivo')
+    .eq('nombre', ciudad)
+    .maybeSingle();
+
+  if (error) {
+    console.error('[totales] Error cargando tarifas de envío', ciudad, error.message);
+    return { tarifas: null, error: error.message };
+  }
+  if (!data) {
+    console.error('[totales] Ciudad no encontrada en tabla ciudades', ciudad);
+    return { tarifas: null, error: `No hay tarifas de envío configuradas para ${ciudad}` };
+  }
+
+  return {
+    tarifas: {
+      qr:       data.tarifa_envio_qr != null ? Number(data.tarifa_envio_qr) : null,
+      efectivo: data.tarifa_envio_efectivo != null ? Number(data.tarifa_envio_efectivo) : null,
+    },
+    error: null,
+  };
+}
+
+// Atajo para cuando solo hace falta un método de pago (mismo llamado
+// que antes tenía app/carrito.tsx, ahora resuelto desde ciudades).
 export async function obtenerTarifaEnvio(
   ciudad: string,
   metodoPago: 'qr' | 'efectivo',
 ): Promise<{ tarifa: number | null; error: string | null }> {
-  const { data, error } = await supabase
-    .from('tarifas_envio')
-    .select('tarifa_qr, tarifa_efectivo')
-    .eq('ciudad', ciudad)
-    .maybeSingle();
-
-  if (error) {
-    console.error('[totales] Error cargando tarifa de envío', ciudad, error.message);
-    return { tarifa: null, error: error.message };
-  }
-  if (!data) {
-    console.error('[totales] Sin tarifa de envío configurada para', ciudad);
-    return { tarifa: null, error: `No hay tarifa de envío configurada para ${ciudad}` };
-  }
-
-  const tarifa = metodoPago === 'qr' ? Number(data.tarifa_qr) : Number(data.tarifa_efectivo);
-  return { tarifa, error: null };
+  const { tarifas, error } = await obtenerTarifasEnvio(ciudad);
+  if (error || !tarifas) return { tarifa: null, error };
+  return { tarifa: metodoPago === 'qr' ? tarifas.qr : tarifas.efectivo, error: null };
 }

@@ -1,36 +1,78 @@
 // context/CiudadContext.tsx
 // Ciudad activa del cliente — persistida en AsyncStorage, cambiable desde
 // perfil.tsx. Todos los listados (delivery/stay/eventos) se filtran por
-// esta ciudad. Ver supabase/migrations/20260804000300_ciudad_check_index.sql.
+// esta ciudad. Las ciudades disponibles ya no son una constante fija:
+// vienen de la tabla `ciudades` (solo las activas se ofrecen como
+// opción — ver supabase/migrations/20260805000000_tabla_ciudades.sql).
+//
+// Si la ciudad guardada en el dispositivo dejó de estar activa (o nunca
+// se guardó ninguna), `ciudad` queda en null a propósito — eso hace que
+// se muestre el selector de nuevo. Nunca se reasigna sola a otra ciudad.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { supabase } from '../lib/supabase';
 
-export const CIUDADES_DISPONIBLES = ['Tarija', 'Santa Cruz'] as const;
-export type Ciudad = typeof CIUDADES_DISPONIBLES[number];
+export type Ciudad = string;
 
 const STORAGE_KEY = 'ce_ciudad_activa';
 
 interface CiudadContextType {
-  ciudad: Ciudad | null; // null = todavía no se resolvió el storage (primer arranque)
-  cargando: boolean;
-  setCiudad: (c: Ciudad) => void;
+  ciudad:          Ciudad | null; // null = sin ciudad activa válida (primer arranque, o la guardada quedó inactiva)
+  ciudadesActivas: Ciudad[];
+  cargando:        boolean;
+  error:           string | null;
+  setCiudad:       (c: Ciudad) => void;
 }
 
 const CiudadContext = createContext<CiudadContextType | null>(null);
 
 export function CiudadProvider({ children }: { children: React.ReactNode }) {
-  const [ciudad, setCiudadState] = useState<Ciudad | null>(null);
-  const [cargando, setCargando] = useState(true);
+  const [ciudad, setCiudadState]         = useState<Ciudad | null>(null);
+  const [ciudadesActivas, setCiudadesActivas] = useState<Ciudad[]>([]);
+  const [cargando, setCargando]          = useState(true);
+  const [error, setError]                = useState<string | null>(null);
 
   useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEY)
-      .then(valor => {
-        if (valor && (CIUDADES_DISPONIBLES as readonly string[]).includes(valor)) {
-          setCiudadState(valor as Ciudad);
+    async function init() {
+      const guardada = await AsyncStorage.getItem(STORAGE_KEY);
+
+      const { data, error: fetchError } = await supabase
+        .from('ciudades')
+        .select('nombre')
+        .eq('activa', true)
+        .order('nombre');
+
+      if (fetchError) {
+        console.error('[CiudadContext] Error cargando ciudades activas', fetchError.message);
+        setError('No se pudo verificar la lista de ciudades. Revisá tu conexión.');
+        // Sin conexión no podemos validar si la ciudad guardada sigue
+        // activa — mejor dejarlo navegar con la última conocida que
+        // trabarlo en un selector vacío.
+        if (guardada) {
+          setCiudadesActivas([guardada]);
+          setCiudadState(guardada);
         }
-      })
-      .catch(e => console.error('[CiudadContext] Error leyendo ciudad guardada', e))
-      .finally(() => setCargando(false));
+        setCargando(false);
+        return;
+      }
+
+      const activas = (data ?? []).map(c => c.nombre);
+      setCiudadesActivas(activas);
+      setError(null);
+
+      // Si `guardada` no está en `activas` (nunca se guardó, o la
+      // ciudad pasó a inactiva) queda ciudad=null a propósito.
+      if (guardada && activas.includes(guardada)) {
+        setCiudadState(guardada);
+      }
+      setCargando(false);
+    }
+
+    init().catch(e => {
+      console.error('[CiudadContext] Error inicializando ciudad', e);
+      setError('No se pudo cargar tu ciudad guardada.');
+      setCargando(false);
+    });
   }, []);
 
   const setCiudad = (c: Ciudad) => {
@@ -41,7 +83,7 @@ export function CiudadProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <CiudadContext.Provider value={{ ciudad, cargando, setCiudad }}>
+    <CiudadContext.Provider value={{ ciudad, ciudadesActivas, cargando, error, setCiudad }}>
       {children}
     </CiudadContext.Provider>
   );
