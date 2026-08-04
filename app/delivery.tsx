@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useCarrito } from '../context/CarritoContext';
+import { useCiudad, CIUDADES_DISPONIBLES } from '../context/CiudadContext';
 import StarRating from '../components/StarRating';
 import { supabase } from '../lib/supabase';
 
@@ -15,18 +16,22 @@ const CATEGORIAS = [
   { id: 6, nombre: 'Heladerías', emoji: '🍦' },
 ];
 
-const CIUDADES = ['Todas', 'Tarija', 'La Paz', 'Santa Cruz', 'Cochabamba', 'Oruro', 'Potosí', 'Sucre', 'Trinidad', 'Cobija'];
+const CIUDADES = ['Todas', ...CIUDADES_DISPONIBLES];
 
 export default function DeliveryScreen() {
   const router = useRouter();
   const { agregarItem, quitarItem, getCantidad, totalItems } = useCarrito();
+  const { ciudad: ciudadGlobal } = useCiudad();
   const [busqueda, setBusqueda] = useState('');
   const [categoriaActiva, setCategoriaActiva] = useState('Restaurantes');
-  const [ciudadActiva, setCiudadActiva] = useState('Todas');
+  // Arranca en la ciudad activa del cliente (ver context/CiudadContext) —
+  // el filtro sigue siendo editable acá mismo si quiere mirar otra ciudad.
+  const [ciudadActiva, setCiudadActiva] = useState(ciudadGlobal ?? 'Todas');
   const [restauranteActivo, setRestauranteActivo] = useState<string | null>(null);
   const [restaurantes, setRestaurantes] = useState<any[]>([]);
   const [productos, setProductos] = useState<any[]>([]);
   const [promedios, setPromedios] = useState<Record<string, { promedio: number; total_ratings: number }>>({});
+  const [tarifasEnvio, setTarifasEnvio] = useState<Record<string, number>>({});
   const [cargando, setCargando] = useState(true);
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
 
@@ -46,12 +51,14 @@ export default function DeliveryScreen() {
         { data: negocios, error: errNegocios },
         { data: prods,    error: errProds },
         { data: promsData },
+        { data: tarifasData },
       ] =
         await Promise.race([
           Promise.all([
             supabase.from('negocios').select('*').eq('activo', true),
             supabase.from('productos').select('*').eq('disponible', true),
             supabase.from('v_promedios_negocios').select('negocio_id, promedio, total_ratings'),
+            supabase.from('tarifas_envio').select('ciudad, tarifa_qr'),
           ]),
           timeout,
         ]);
@@ -65,6 +72,13 @@ export default function DeliveryScreen() {
         pMap[p.negocio_id] = { promedio: Number(p.promedio), total_ratings: Number(p.total_ratings) };
       }
       setPromedios(pMap);
+      // Mapa ciudad → tarifa de envío QR (ver lib/totales.ts) — reemplaza
+      // el "Bs. 8 envío" que estaba hardcodeado en la card.
+      const tMap: Record<string, number> = {};
+      for (const t of (tarifasData ?? [])) {
+        tMap[t.ciudad] = Number(t.tarifa_qr);
+      }
+      setTarifasEnvio(tMap);
     } catch (e: any) {
       setErrorCarga(e?.message ?? 'Error al conectar con el servidor');
     } finally {
@@ -197,7 +211,9 @@ export default function DeliveryScreen() {
                     ) : (
                       <Text style={styles.restNuevo}>✨ Nuevo</Text>
                     )}
-                    <Text style={styles.restPrecio}>Bs. 8 envío</Text>
+                    <Text style={styles.restPrecio}>
+                      {rest.ciudad && tarifasEnvio[rest.ciudad] != null ? `Bs. ${tarifasEnvio[rest.ciudad]} envío` : 'Envío a confirmar'}
+                    </Text>
                     {rest.ciudad && <Text style={styles.restCiudad}>📍 {rest.ciudad}</Text>}
                   </View>
                 </View>

@@ -1,11 +1,12 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useCarrito } from '../context/CarritoContext';
 import { supabase } from '../lib/supabase';
 import { sendPushTo } from '../lib/usePush';
+import { obtenerTarifaEnvio } from '../lib/totales';
 import { BrandColors } from '../constants/theme';
 
 // Formato: CE-PED-XXXXXXXX (primeros 8 chars del UUID en mayúsculas)
@@ -46,11 +47,49 @@ export default function CarritoScreen() {
   const [capturandoGPS, setCapturandoGPS]       = useState(false);
   const [mostrarErrorDir, setMostrarErrorDir]   = useState(false);
 
+  const [costoEnvio, setCostoEnvio]   = useState(0);
+  const [errorTarifa, setErrorTarifa] = useState<string | null>(null);
+
   const tieneDelivery    = items.some(i => i.tipo === 'delivery');
   const subtotal         = items.reduce((acc, i) => acc + i.precio * i.cantidad, 0);
-  const costoEnvio       = tieneDelivery ? (metodoPago === 'qr' ? 8 : 12) : 0;
-  const total            = subtotal + costoEnvio;
+  const total             = subtotal + costoEnvio;
   const tiposEnCarrito   = [...new Set(items.map(i => i.tipo))];
+  const negocioDeliveryId = items.find(i => i.tipo === 'delivery')?.negocio_id;
+
+  // Costo de envío real desde tarifas_envio, por ciudad del negocio —
+  // nunca hardcodeado acá (ver lib/totales.ts). Solo aplica si hay
+  // delivery en el carrito; Stay y Eventos nunca lo tienen.
+  useEffect(() => {
+    let cancelado = false;
+
+    async function cargarTarifa() {
+      if (!tieneDelivery) {
+        setCostoEnvio(0);
+        setErrorTarifa(null);
+        return;
+      }
+
+      let ciudad = 'Tarija';
+      if (negocioDeliveryId) {
+        const { data } = await supabase.from('negocios').select('ciudad').eq('id', negocioDeliveryId).maybeSingle();
+        if (data?.ciudad) ciudad = data.ciudad;
+      }
+
+      const { tarifa, error } = await obtenerTarifaEnvio(ciudad, metodoPago);
+      if (cancelado) return;
+
+      if (error || tarifa == null) {
+        setErrorTarifa(error ?? 'No se pudo cargar el costo de envío');
+        setCostoEnvio(0);
+      } else {
+        setErrorTarifa(null);
+        setCostoEnvio(tarifa);
+      }
+    }
+
+    cargarTarifa();
+    return () => { cancelado = true; };
+  }, [tieneDelivery, metodoPago, negocioDeliveryId]);
 
   const capturarUbicacion = async () => {
     setCapturandoGPS(true);
@@ -73,6 +112,12 @@ export default function CarritoScreen() {
     // Validar dirección antes de proceder
     if (tieneDelivery && !direccionEntrega.trim()) {
       setMostrarErrorDir(true);
+      return;
+    }
+    // Si el costo de envío no cargó, no confirmamos con un total
+    // incompleto — mejor bloquear que cobrar de menos en silencio.
+    if (tieneDelivery && errorTarifa) {
+      setErrorMsg('No se pudo calcular el costo de envío. Revisá tu conexión e intentá de nuevo.');
       return;
     }
     setGuardando(true);
@@ -237,6 +282,16 @@ export default function CarritoScreen() {
             nombreEvento:      primerEvento?.nombre      ?? '',
             nombreAlojamiento: primerAlojamiento?.nombre ?? '',
           },
+        });
+      } else if (tipoNavegacion === 'evento' && pedidoPrincipalId) {
+        router.push({
+          pathname: '/mi-ticket',
+          params: { pedidoId: pedidoPrincipalId, referenciaPago: generarReferencia(pedidoPrincipalId), nombreEvento: primerEvento?.nombre ?? '' },
+        });
+      } else if (tipoNavegacion === 'stay' && pedidoPrincipalId) {
+        router.push({
+          pathname: '/mi-reserva',
+          params: { pedidoId: pedidoPrincipalId, referenciaPago: generarReferencia(pedidoPrincipalId), nombreAlojamiento: primerAlojamiento?.nombre ?? '' },
         });
       } else {
         router.push({
@@ -414,6 +469,12 @@ export default function CarritoScreen() {
             {destinoCoords && (
               <Text style={styles.gpsConfirmado}>✅ Ubicación GPS capturada — el repartidor verá tu pin en el mapa</Text>
             )}
+          </View>
+        )}
+
+        {tieneDelivery && errorTarifa && (
+          <View style={styles.errorBox}>
+            <Text style={styles.errorText}>⚠️ No se pudo calcular el costo de envío: {errorTarifa}</Text>
           </View>
         )}
 

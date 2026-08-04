@@ -1,7 +1,7 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Linking, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Animated, Linking, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import MapaRepartidor from '../components/MapaRepartidor';
 import StarRating from '../components/StarRating';
 import { supabase } from '../lib/supabase';
@@ -82,6 +82,8 @@ export default function SeguimientoScreen() {
   const [repartidorReal, setRepartidorReal] = useState<any>(null);
   const [repartidorCoords, setRepartidorCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [destinoCoords, setDestinoCoords]       = useState<{ lat: number; lng: number } | null>(null);
+  const [cargando, setCargando] = useState(true);
+  const [errorCarga, setErrorCarga] = useState<string | null>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   // Cargar pedido real desde Supabase
@@ -91,11 +93,11 @@ export default function SeguimientoScreen() {
 
     async function cargar() {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user) { setCargando(false); return; }
 
       let pedidoId = params.pedidoId;
       if (!pedidoId) {
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from('pedidos')
           .select('*')
           .eq('cliente_id', user.id)
@@ -103,12 +105,21 @@ export default function SeguimientoScreen() {
           .order('created_at', { ascending: false })
           .limit(1)
           .single();
+        if (error) {
+          console.error('[seguimiento] Error cargando último pedido', error.message);
+          setErrorCarga('No pudimos cargar tu pedido. Revisá tu conexión.');
+        }
         pedidoId = data?.id;
         if (data) actualizarDesdeDB(data);
       } else {
-        const { data } = await supabase.from('pedidos').select('*').eq('id', pedidoId).single();
+        const { data, error } = await supabase.from('pedidos').select('*').eq('id', pedidoId).single();
+        if (error) {
+          console.error('[seguimiento] Error cargando pedido', pedidoId, error.message);
+          setErrorCarga('No pudimos cargar este pedido. Revisá tu conexión.');
+        }
         if (data) actualizarDesdeDB(data);
       }
+      setCargando(false);
 
       if (pedidoId) {
         // Suscripción a cambios de estado del pedido
@@ -206,34 +217,6 @@ export default function SeguimientoScreen() {
 
   const REPARTIDOR = repartidorReal ?? REPARTIDOR_DEFAULT;
 
-  const PEDIDO = pedidoReal ? {
-    numero: `#CE-${pedidoReal.id.slice(-8).toUpperCase()}`,
-    fecha: new Date(pedidoReal.created_at).toLocaleString('es-BO'),
-    restaurante: pedidoReal.negocios?.nombre ?? 'Restaurante',
-    restauranteEmoji: '🍔',
-    items: Array.isArray(pedidoReal.items) ? pedidoReal.items : [],
-    subtotal: pedidoReal.subtotal ?? pedidoReal.total ?? 0,
-    envio: pedidoReal.costo_envio ?? 0,
-    total: pedidoReal.total ?? 0,
-    direccion: pedidoReal.direccion_entrega ?? 'Dirección de entrega',
-    referencia: '',
-  } : {
-    numero: '#CE-2024-0847',
-    fecha: '12 Mar 2026 • 14:32',
-    restaurante: 'El Rancho Chapaco',
-    restauranteEmoji: '🥩',
-    items: [
-      { nombre: 'Silpancho completo', cantidad: 1, precio: 35 },
-      { nombre: 'Salteñas (x3)', cantidad: 1, precio: 15 },
-      { nombre: 'Refresco', cantidad: 1, precio: 10 },
-    ],
-    subtotal: 50,
-    envio: 10,
-    total: 60,
-    direccion: 'Av. Las Américas #342, Tarija',
-    referencia: 'Casa de rejas negras, frente a la farmacia',
-  };
-
   // Animación pulso repartidor en mapa
   useEffect(() => {
     Animated.loop(
@@ -273,7 +256,12 @@ export default function SeguimientoScreen() {
           comentario_repartidor:   comentarioRepartidor.trim() || null,
         });
       }
-    } catch { /* falla silenciosamente */ }
+    } catch (e: any) {
+      console.error('[seguimiento] Error guardando calificación', e?.message ?? e);
+      Alert.alert('No se pudo guardar tu calificación', 'Revisá tu conexión e intentá de nuevo.');
+      setGuardandoRating(false);
+      return;
+    }
     setGuardandoRating(false);
     setModalCalificar(false);
     setCalificado(true);
@@ -285,6 +273,57 @@ export default function SeguimientoScreen() {
     { id: 'chat',        emoji: '📞',   label: 'Contacto'   },
     { id: 'pedido',      emoji: '📦',   label: 'Pedido'     },
   ];
+
+  // Sin esto, un pedido no encontrado o un error de red se veían
+  // idénticos a un pedido real: se mostraba "El Rancho Chapaco" con
+  // datos inventados. Estado vacío/error honesto en su lugar.
+  if (cargando) {
+    return (
+      <View style={s.centered}>
+        <Text style={s.centeredEmoji}>⏳</Text>
+        <Text style={s.centeredText}>Cargando tu pedido…</Text>
+      </View>
+    );
+  }
+
+  if (errorCarga) {
+    return (
+      <View style={s.centered}>
+        <Text style={s.centeredEmoji}>⚠️</Text>
+        <Text style={s.centeredText}>{errorCarga}</Text>
+        <TouchableOpacity style={s.centeredBtn} onPress={() => router.replace('/')}>
+          <Text style={s.centeredBtnText}>Volver al inicio</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  if (!pedidoReal) {
+    return (
+      <View style={s.centered}>
+        <Text style={s.centeredEmoji}>📦</Text>
+        <Text style={s.centeredText}>No encontramos ningún pedido para mostrar acá.</Text>
+        <TouchableOpacity style={s.centeredBtn} onPress={() => router.replace('/')}>
+          <Text style={s.centeredBtnText}>Volver al inicio</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // TS ya sabe acá que pedidoReal no es null (los 3 early return de
+  // arriba cubren cargando / error / vacío).
+  const PEDIDO = {
+    numero: `#CE-${pedidoReal.id.slice(-8).toUpperCase()}`,
+    fecha: new Date(pedidoReal.created_at).toLocaleString('es-BO'),
+    restaurante: pedidoReal.negocios?.nombre ?? 'Restaurante',
+    restauranteEmoji: '🍔',
+    items: Array.isArray(pedidoReal.items) ? pedidoReal.items : [],
+    subtotal: pedidoReal.subtotal ?? pedidoReal.total ?? 0,
+    envio: pedidoReal.costo_envio ?? 0,
+    total: pedidoReal.total ?? 0,
+    direccion: pedidoReal.direccion_entrega ?? 'Dirección de entrega',
+    referencia: '',
+  };
 
   return (
     <View style={s.container}>
@@ -531,10 +570,12 @@ export default function SeguimientoScreen() {
                 <Text style={s.totalLabel}>Subtotal</Text>
                 <Text style={s.totalValor}>Bs.{PEDIDO.subtotal}</Text>
               </View>
-              <View style={s.totalFila}>
-                <Text style={s.totalLabel}>Envío</Text>
-                <Text style={s.totalValor}>Bs.{PEDIDO.envio}</Text>
-              </View>
+              {PEDIDO.envio > 0 && (
+                <View style={s.totalFila}>
+                  <Text style={s.totalLabel}>Envío</Text>
+                  <Text style={s.totalValor}>Bs.{PEDIDO.envio}</Text>
+                </View>
+              )}
               <View style={[s.totalFila, s.totalFinal]}>
                 <Text style={s.totalFinalLabel}>Total pagado</Text>
                 <Text style={s.totalFinalValor}>Bs.{PEDIDO.total}</Text>
@@ -646,6 +687,11 @@ export default function SeguimientoScreen() {
 
 // ─── ESTILOS ──────────────────────────────────────────────
 const s = StyleSheet.create({
+  centered:      { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F8F7FF', gap: 12, padding: 32 },
+  centeredEmoji: { fontSize: 48 },
+  centeredText:  { fontSize: 14, color: '#6B7280', textAlign: 'center' },
+  centeredBtn:   { marginTop: 8, paddingVertical: 12, paddingHorizontal: 28, backgroundColor: '#F97316', borderRadius: 12 },
+  centeredBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   container:            { flex: 1, backgroundColor: '#F8F7FF' },
   header:               { paddingTop: 55, paddingBottom: 24, paddingHorizontal: 20 },
   backBtn:              { marginBottom: 12 },
