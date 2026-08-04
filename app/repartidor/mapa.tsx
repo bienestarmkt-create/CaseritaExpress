@@ -5,8 +5,9 @@
  *
  * Muestra el mapa con la posición actual del repartidor y el
  * destino del pedido que esté en estado 'en_camino'.
- * - Usa MapaRepartidor (native/web) existente.
- * - GPS con expo-location (watchPositionAsync).
+ * - Usa MapaLeaflet (native/web) en modo readonly.
+ * - GPS con expo-location (watchPositionAsync), y transmite la
+ *   posición a ubicaciones_repartidores igual que tracking.tsx.
  * - Tarjeta de info del pedido debajo del mapa.
  * ─────────────────────────────────────────────────────────────
  */
@@ -14,6 +15,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ActivityIndicator,
+  Alert,
   Platform,
   ScrollView,
   StyleSheet,
@@ -28,8 +30,8 @@ import { watchPositionWeb, type GeoErrorTipo, type GeoSubscription } from '../..
 import { distanciaMetros } from '../../lib/geo'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 
-// MapaRepartidor se importa por platform (native / web)
-import MapaRepartidor from '../../components/MapaRepartidor'
+// MapaLeaflet se importa por platform (native / web)
+import MapaLeaflet from '../../components/MapaLeaflet'
 
 // ─── Tipos ────────────────────────────────────────────────────
 type Coords = { lat: number; lng: number }
@@ -82,6 +84,7 @@ export default function MapaScreen() {
   const [gpsError,     setGpsError]     = useState<{ tipo: GeoErrorTipo; mensaje: string } | null>(null)
   const [updatingId,   setUpdatingId]   = useState<string | null>(null)
   const [userId,       setUserId]       = useState<string | null>(null)
+  const [errorUbicacion, setErrorUbicacion] = useState<string | null>(null)
 
   // Evita que un await cuelgue para siempre cuando la red se queda muda
   // (mismo patrón que app/index.tsx).
@@ -175,6 +178,34 @@ export default function MapaScreen() {
     }
   }, [reintentos])
 
+  // ── Transmitir ubicación a ubicaciones_repartidores ───────
+  // Mismo upsert que repartidor/tracking.tsx: el cliente (seguimiento.tsx)
+  // lee de esta tabla vía Realtime, así que el repartidor tiene que
+  // transmitir esté en la pantalla de tracking o en esta (mapa), no solo
+  // en una de las dos.
+  const enviarUbicacion = async (newLat: number, newLng: number) => {
+    if (!userId || !pedido) return
+    try {
+      const { error } = await conTimeout(
+        supabase
+          .from('ubicaciones_repartidores')
+          .upsert(
+            { pedido_id: pedido.id, repartidor_id: userId, lat: newLat, lng: newLng, updated_at: new Date().toISOString() },
+            { onConflict: 'pedido_id' }
+          ),
+        8000
+      )
+      if (error) {
+        console.error('[repartidor/mapa] Error al transmitir ubicación', error.message)
+        setErrorUbicacion(`No se pudo transmitir tu ubicación: ${error.message}`)
+      } else {
+        setErrorUbicacion(null)
+      }
+    } catch {
+      setErrorUbicacion('Tiempo de espera agotado transmitiendo tu ubicación. Revisá tu conexión.')
+    }
+  }
+
   // ── Watch GPS ─────────────────────────────────────────────
   // Native: expo-location, sin cambios. Web: navigator.geolocation directo
   // (ver lib/geolocationWeb.ts) — es lo único que dispara el popup real del
@@ -187,6 +218,7 @@ export default function MapaScreen() {
         ({ lat, lng }) => {
           setGpsError(null)
           setMiCoords({ lat, lng })
+          enviarUbicacion(lat, lng)
         },
         (tipo, mensaje) => {
           setGpsError({ tipo, mensaje })
@@ -208,6 +240,7 @@ export default function MapaScreen() {
         },
         loc => {
           setMiCoords({ lat: loc.coords.latitude, lng: loc.coords.longitude })
+          enviarUbicacion(loc.coords.latitude, loc.coords.longitude)
         }
       )
     })()
@@ -215,7 +248,10 @@ export default function MapaScreen() {
     return () => {
       locationSub.current?.remove()
     }
-  }, [permisoOk])
+    // Se reinicia el watch si cambia el pedido activo o el usuario, para
+    // que enviarUbicacion nunca quede con un pedido.id / userId viejo en
+    // su closure (mismo motivo que repartidor/tracking.tsx).
+  }, [permisoOk, pedido?.id, userId])
 
   // ── Marcar entregado ──────────────────────────────────────
   const marcarEntregado = async () => {
@@ -235,7 +271,10 @@ export default function MapaScreen() {
       .update({ estado: 'entregado', entrega_sospechosa: entregaSospechosa })
       .eq('id', pedido.id)
 
-    if (!error) {
+    if (error) {
+      console.error('[repartidor/mapa] Error al marcar entregado', pedido.id, error.message)
+      Alert.alert('No se pudo marcar como entregado', error.message)
+    } else {
       setPedido(null)
       router.push('/repartidor/pedidos' as any)
     }
@@ -318,14 +357,23 @@ export default function MapaScreen() {
   }
 
   // ── Render ────────────────────────────────────────────────
+  const markers = [
+    ...(miCoords ? [{ id: 'repartidor', lat: miCoords.lat, lng: miCoords.lng, emoji: '🏍️', label: 'Vos' }] : []),
+    ...(destinoCoords ? [{ id: 'destino', lat: destinoCoords.lat, lng: destinoCoords.lng, emoji: '📍', label: 'Destino' }] : []),
+  ]
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {/* Mapa */}
       <View style={styles.mapaWrapper}>
-        <MapaRepartidor
-          coords={miCoords}
-          destinoCoords={destinoCoords}
-        />
+        {miCoords ? (
+          <MapaLeaflet mode="readonly" markers={markers} />
+        ) : (
+          <View style={styles.mapaEsperando}>
+            <ActivityIndicator size="small" color={C.primary} />
+            <Text style={styles.mapaEsperandoText}>📡 Obteniendo tu ubicación GPS…</Text>
+          </View>
+        )}
       </View>
 
       {/* Aviso sin permiso GPS */}
@@ -344,6 +392,13 @@ export default function MapaScreen() {
       {permisoOk && gpsError && gpsError.tipo !== 'denied' && (
         <View style={styles.alertaBanner}>
           <Text style={styles.alertaText}>⚠️ {gpsError.mensaje}</Text>
+        </View>
+      )}
+
+      {/* Tu posición se lee bien, pero no se pudo transmitir al cliente */}
+      {errorUbicacion && (
+        <View style={styles.alertaBanner}>
+          <Text style={styles.alertaText}>⚠️ {errorUbicacion}</Text>
         </View>
       )}
 
@@ -428,6 +483,10 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 8, shadowOffset: { width: 0, height: 2 },
     elevation: 3,
   },
+  mapaEsperando: {
+    height: 230, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center', gap: 8,
+  },
+  mapaEsperandoText: { fontSize: 13, color: C.textLight },
 
   alertaBanner: {
     backgroundColor: '#FEF3C7', borderRadius: 10,

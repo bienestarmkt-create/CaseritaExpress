@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Platform,
   Pressable,
@@ -244,6 +245,8 @@ export default function PedidosScreen() {
 
     if (error) {
       console.error('[repartidor/pedidos] Error al tomar pedido', pedido.id, error.message)
+      setAvisoTomado(`No se pudo tomar el pedido: ${error.message}`)
+      setTimeout(() => setAvisoTomado(null), 4000)
     } else if (!data || data.length === 0) {
       setAvisoTomado('Este pedido ya fue tomado')
       setTimeout(() => setAvisoTomado(null), 3000)
@@ -274,12 +277,14 @@ export default function PedidosScreen() {
       .eq('id', pedido.id)
 
     if (error) {
+      console.error('[repartidor/pedidos] Error al cambiar estado', pedido.id, error.message)
       // Revert optimistic update
       setPedidos(prev =>
         nextEstado === 'entregado'
           ? [pedido, ...prev]
           : prev.map(p => p.id === pedido.id ? { ...p, estado: pedido.estado } : p)
       )
+      Alert.alert('No se pudo actualizar el pedido', error.message)
     } else {
       // Notificar al cliente — falla silenciosamente si hay error
       notificarCambioEstado(pedido.id, nextEstado).catch(() => {})
