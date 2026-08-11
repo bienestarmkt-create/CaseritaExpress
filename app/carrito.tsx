@@ -193,10 +193,13 @@ export default function CarritoScreen() {
         tipoNavegacion = 'delivery';
 
         // Agregar referencia ahora que tenemos el ID
+        // codigo_referencia = misma referencia, columna que lee
+        // validar-comprobante v16 para el chequeo antifraude (unificada
+        // con lo que ya se guarda para reservas/entradas más abajo).
         const referencia = generarReferencia(pedido.id);
         await supabase
           .from('pedidos')
-          .update({ referencia_pago: referencia })
+          .update({ referencia_pago: referencia, codigo_referencia: referencia })
           .eq('id', pedido.id);
 
         const { error: errorDetalle } = await supabase
