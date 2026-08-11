@@ -41,10 +41,16 @@
 // se devolvía error 500 sin tocar estado_validacion) — ahora escribe
 // estado_validacion='revision' con codigo VISION_NO_DISPONIBLE, igual que
 // cualquier otro chequeo que no se pudo ejecutar (nunca aprobación por
-// defecto). También se agregó el chequeo de cuenta_destino/titular_destino
-// normalizado (flag check_cuenta_destino, ver
-// supabase/migrations/20260811130000_antifraude_v16_cuenta_destino_flag.sql
-// — default FALSE, implementado pero desactivado a propósito).
+// defecto).
+//
+// El chequeo de cuenta_destino/titular_destino ya NO es un rechazo duro
+// sin flag (así era en v15/v16) — es un único chequeo gateado por
+// config_validacion.check_cuenta_destino (default FALSE), igual que el
+// resto de los chequeos. Una cuenta destino distinta va a REVISIÓN, no a
+// rechazo automático: un error de lectura de Vision no debe costarle el
+// pedido a un cliente legítimo. Fuente de verdad del número de cuenta: el
+// secret CUENTA_DESTINO_VALIDA (una sola, ya no hay una constante
+// hardcodeada duplicando el mismo dato).
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -71,11 +77,9 @@ const TOLERANCIA_MONTO = 0.50
 // límite, a merced del timeout de plataforma de la Edge Function).
 const VISION_TIMEOUT_MS = 20_000
 
-// Cuenta y titular "reales" de la tarea — chequeo nuevo, gateado por
-// check_cuenta_destino (default false). Distinto del chequeo legacy de
-// más abajo, que compara contra el secret CUENTA_DESTINO_VALIDA y NO
-// verifica titular.
-const CUENTA_DESTINO_ESPERADA = '4013271000001'
+// Apellidos del titular esperado — no hay secret propio para esto (a
+// diferencia del número de cuenta, que usa CUENTA_DESTINO_VALIDA como
+// única fuente de verdad, ver chequeo cuenta_destino_titular más abajo).
 const APELLIDOS_TITULAR_ESPERADO = ['OCAMPO', 'YUCRA']
 
 Deno.serve(async (req: Request) => {
@@ -256,9 +260,9 @@ Deno.serve(async (req: Request) => {
 
     console.log('Llamando Claude Vision...')
     const visionStart = Date.now()
-    let resultado: Record<string, unknown>
+    let visionResultado: VisionResultado
     try {
-      resultado = await verificarConClaude(apiKey, imageBase64, mimeType, totalEsperado, VISION_TIMEOUT_MS)
+      visionResultado = await verificarConClaude(apiKey, imageBase64, mimeType, totalEsperado, VISION_TIMEOUT_MS)
     } catch (visionErr) {
       // Antes: sin timeout, y un error acá se propagaba al catch general →
       // 500 sin tocar estado_validacion (quedaba "pendiente" sin resolver,
@@ -276,7 +280,9 @@ Deno.serve(async (req: Request) => {
         motivo: 'No pudimos verificar tu comprobante automáticamente. Quedó en revisión manual, te confirmaremos en breve.',
       })
     }
-    console.log(`Vision respondió en ${Date.now() - visionStart}ms:`, JSON.stringify(resultado))
+    const resultado = visionResultado.datos
+    detalle.vision_usage = visionResultado.usage
+    console.log(`Vision respondió en ${Date.now() - visionStart}ms:`, JSON.stringify(resultado), 'usage:', JSON.stringify(visionResultado.usage))
 
     const numeroTransaccion = typeof resultado.numero_transaccion === 'string'
       ? resultado.numero_transaccion.trim() || null
@@ -296,7 +302,7 @@ Deno.serve(async (req: Request) => {
 
     // ── Chequeos de validez de v15 (no están en la lista numerada de la
     // tarea, pero son protecciones existentes — se mantienen sin cambios,
-    // "todo cambio aditivo"). Rechazo duro en los tres casos. ──
+    // "todo cambio aditivo"). Rechazo duro en los dos casos. ──
     if (!resultado.es_comprobante) {
       const motivo = (resultado.motivo_rechazo as string | null) ?? 'Comprobante no válido'
       await escribirAuditoria(supabase, tabla, id, 'rechazado', detalle)
@@ -306,23 +312,29 @@ Deno.serve(async (req: Request) => {
       await escribirAuditoria(supabase, tabla, id, 'rechazado', detalle)
       return json({ valido: false, ok: false, codigo: 'COMPROBANTE_ILEGIBLE', motivo: 'Comprobante ilegible, subí una captura más nítida' })
     }
-    if (cuentaDestino !== cuentaDestinoValida) {
-      await escribirAuditoria(supabase, tabla, id, 'rechazado', detalle)
-      return json({ valido: false, ok: false, codigo: 'CUENTA_DESTINO_INVALIDA', motivo: 'La cuenta destino del comprobante no coincide con la cuenta de CaseritaExpress' })
-    }
 
-    // ── Cuenta destino / titular — chequeo NUEVO normalizado (flag
-    // check_cuenta_destino, default false). El chequeo legacy de arriba ya
-    // rechaza en duro por número de cuenta contra el secret
-    // CUENTA_DESTINO_VALIDA; este agrega verificación de TITULAR (que el
-    // legacy no hace) contra valores fijos de esta tarea. Se registra
-    // siempre en validacion_detalle, esté o no el flag activo — así se
-    // puede ver qué habría pasado antes de activarlo.
+    // ── Cuenta destino / titular — única fuente de verdad, gateada por
+    // config_validacion.check_cuenta_destino (mismo sistema de flags que
+    // el resto de los chequeos). Reemplaza al chequeo legacy de v15 que
+    // rechazaba en duro contra el secret CUENTA_DESTINO_VALIDA sin
+    // verificar titular y sin flag — ese comportamiento se elimina, no se
+    // duplica. El resultado del rechazo duro migra a REVISIÓN: cuenta
+    // destino distinta es sospechoso, pero un error de extracción de
+    // Vision (letra borrosa, reflejo en la pantalla) no debe costarle el
+    // pedido a un cliente legítimo, y con dos fuentes de verdad separadas
+    // (secret + constante hardcodeada) terminan divergiendo con el tiempo.
+    // Fuente de verdad del número de cuenta: el secret CUENTA_DESTINO_VALIDA
+    // (mismo que usaba el legacy — ya confirmado: 13 dígitos, sin espacios).
+    // El titular no tenía secret propio — se usa el valor fijo de esta tarea.
     detalle.cuenta_destino_extraida = cuentaDestino
     detalle.titular_destino_extraido = titularDestino
 
+    // El veredicto (coincide/no_coincide/no_extraible) se calcula y
+    // registra SIEMPRE, esté o no el flag activo — así se ve qué habría
+    // pasado antes de activarlo. El flag solo decide si ese veredicto
+    // afecta el resultado real (revisionFlags).
     const cuentaCoincide = cuentaDestino !== null
-      && normalizarCuenta(cuentaDestino) === normalizarCuenta(CUENTA_DESTINO_ESPERADA)
+      && normalizarCuenta(cuentaDestino) === normalizarCuenta(cuentaDestinoValida)
     const titularCoincide = coincideTitular(titularDestino, APELLIDOS_TITULAR_ESPERADO)
 
     if (cuentaDestino === null || titularDestino === null) {
@@ -483,6 +495,10 @@ type ValidacionDetalle = {
   monto_esperado: number
   cuenta_destino_extraida?: string | null
   titular_destino_extraido?: string | null
+  // input_tokens/output_tokens reales de la llamada a Claude Vision — para
+  // costo medido en vez de estimado. Ausente en los casos que nunca llegan
+  // a llamar a Vision (hash reutilizado, referencia no coincide, etc.).
+  vision_usage?: { input_tokens: number; output_tokens: number }
   resultado_por_chequeo: Record<string, string>
   flags_activos: Record<string, boolean>
   timestamp: string
@@ -696,13 +712,16 @@ function toBase64(buffer: ArrayBuffer): string {
   return btoa(binary)
 }
 
+type VisionUsage = { input_tokens: number; output_tokens: number }
+type VisionResultado = { datos: Record<string, unknown>; usage: VisionUsage }
+
 async function verificarConClaude(
   apiKey: string,
   imageBase64: string,
   mimeType: string,
   totalEsperado: number,
   timeoutMs: number,
-): Promise<Record<string, unknown>> {
+): Promise<VisionResultado> {
   const prompt = `Analiza este comprobante de transferencia bancaria boliviana.
 
 Responde SOLO JSON sin texto extra:
@@ -760,12 +779,22 @@ Reglas:
     throw new Error(`Claude API ${res.status}: ${body.slice(0, 300)}`)
   }
 
-  const data = await res.json() as { content: { text: string }[] }
+  const data = await res.json() as {
+    content: { text: string }[]
+    usage?: { input_tokens: number; output_tokens: number }
+  }
   const text = data.content[0].text.trim()
   console.log('Respuesta Claude raw:', text.slice(0, 200))
   const match = text.match(/\{[\s\S]*\}/)
   if (!match) throw new Error(`Claude no devolvió JSON válido: ${text.slice(0, 100)}`)
-  return JSON.parse(match[0]) as Record<string, unknown>
+  return {
+    datos: JSON.parse(match[0]) as Record<string, unknown>,
+    // Costo real medido en vez de estimado — ver validacion_detalle.vision_usage.
+    usage: {
+      input_tokens: data.usage?.input_tokens ?? 0,
+      output_tokens: data.usage?.output_tokens ?? 0,
+    },
+  }
 }
 
 function json(body: unknown, status = 200) {
