@@ -34,6 +34,17 @@
 // registra el comprobante en comprobantes_usados en una sola transacción
 // atómica — si algo falla, nada de eso queda hecho (ver
 // supabase/migrations/20260811100000_antifraude_v16.sql).
+//
+// Actualización: la llamada a Claude Vision ahora tiene timeout (20s) y,
+// ante timeout o cualquier error de la API de Vision, ya NO deja el
+// registro "pendiente sin resolver" (que era el comportamiento anterior:
+// se devolvía error 500 sin tocar estado_validacion) — ahora escribe
+// estado_validacion='revision' con codigo VISION_NO_DISPONIBLE, igual que
+// cualquier otro chequeo que no se pudo ejecutar (nunca aprobación por
+// defecto). También se agregó el chequeo de cuenta_destino/titular_destino
+// normalizado (flag check_cuenta_destino, ver
+// supabase/migrations/20260811130000_antifraude_v16_cuenta_destino_flag.sql
+// — default FALSE, implementado pero desactivado a propósito).
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -55,6 +66,17 @@ const TABLA_POR_TIPO: Record<Tipo, string> = {
 // total real registrado en la base. Bs. 0.50 en cada dirección — ver
 // chequeo MONTO más abajo (ya no es un rechazo simétrico como en v15).
 const TOLERANCIA_MONTO = 0.50
+
+// Timeout de la llamada a Claude Vision. No existía antes (fetch sin
+// límite, a merced del timeout de plataforma de la Edge Function).
+const VISION_TIMEOUT_MS = 20_000
+
+// Cuenta y titular "reales" de la tarea — chequeo nuevo, gateado por
+// check_cuenta_destino (default false). Distinto del chequeo legacy de
+// más abajo, que compara contra el secret CUENTA_DESTINO_VALIDA y NO
+// verifica titular.
+const CUENTA_DESTINO_ESPERADA = '4013271000001'
+const APELLIDOS_TITULAR_ESPERADO = ['OCAMPO', 'YUCRA']
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
@@ -233,14 +255,37 @@ Deno.serve(async (req: Request) => {
     const imageBase64 = toBase64(arrayBuffer)
 
     console.log('Llamando Claude Vision...')
-    const resultado = await verificarConClaude(apiKey, imageBase64, mimeType, totalEsperado)
-    console.log('Respuesta Claude:', JSON.stringify(resultado))
+    const visionStart = Date.now()
+    let resultado: Record<string, unknown>
+    try {
+      resultado = await verificarConClaude(apiKey, imageBase64, mimeType, totalEsperado, VISION_TIMEOUT_MS)
+    } catch (visionErr) {
+      // Antes: sin timeout, y un error acá se propagaba al catch general →
+      // 500 sin tocar estado_validacion (quedaba "pendiente" sin resolver,
+      // el cliente veía un error genérico y podía reintentar indefinidamente).
+      // Ahora: nunca aprobación por defecto, pero tampoco lo dejamos sin
+      // resolver — va a revisión manual con motivo explícito.
+      const e = visionErr instanceof Error ? visionErr : new Error(String(visionErr))
+      const duracionMs = Date.now() - visionStart
+      const esTimeout = e.name === 'AbortError'
+      console.error(`Vision ${esTimeout ? 'timeout' : 'error'} tras ${duracionMs}ms:`, e.message)
+      detalle.resultado_por_chequeo.vision = esTimeout ? 'timeout' : 'error'
+      await escribirAuditoria(supabase, tabla, id, 'revision', detalle)
+      return json({
+        valido: false, ok: false, codigo: 'VISION_NO_DISPONIBLE',
+        motivo: 'No pudimos verificar tu comprobante automáticamente. Quedó en revisión manual, te confirmaremos en breve.',
+      })
+    }
+    console.log(`Vision respondió en ${Date.now() - visionStart}ms:`, JSON.stringify(resultado))
 
     const numeroTransaccion = typeof resultado.numero_transaccion === 'string'
       ? resultado.numero_transaccion.trim() || null
       : null
     const cuentaDestino = typeof resultado.cuenta_destino === 'string'
       ? resultado.cuenta_destino.trim()
+      : null
+    const titularDestino = typeof resultado.titular_destino === 'string'
+      ? resultado.titular_destino.trim() || null
       : null
     const montoDetectado = typeof resultado.monto_detectado === 'number'
       ? resultado.monto_detectado
@@ -265,6 +310,31 @@ Deno.serve(async (req: Request) => {
       await escribirAuditoria(supabase, tabla, id, 'rechazado', detalle)
       return json({ valido: false, ok: false, codigo: 'CUENTA_DESTINO_INVALIDA', motivo: 'La cuenta destino del comprobante no coincide con la cuenta de CaseritaExpress' })
     }
+
+    // ── Cuenta destino / titular — chequeo NUEVO normalizado (flag
+    // check_cuenta_destino, default false). El chequeo legacy de arriba ya
+    // rechaza en duro por número de cuenta contra el secret
+    // CUENTA_DESTINO_VALIDA; este agrega verificación de TITULAR (que el
+    // legacy no hace) contra valores fijos de esta tarea. Se registra
+    // siempre en validacion_detalle, esté o no el flag activo — así se
+    // puede ver qué habría pasado antes de activarlo.
+    detalle.cuenta_destino_extraida = cuentaDestino
+    detalle.titular_destino_extraido = titularDestino
+
+    const cuentaCoincide = cuentaDestino !== null
+      && normalizarCuenta(cuentaDestino) === normalizarCuenta(CUENTA_DESTINO_ESPERADA)
+    const titularCoincide = coincideTitular(titularDestino, APELLIDOS_TITULAR_ESPERADO)
+
+    if (cuentaDestino === null || titularDestino === null) {
+      detalle.resultado_por_chequeo.cuenta_destino_titular = 'no_extraible'
+      if (flags.check_cuenta_destino) revisionFlags.push('cuenta_destino_distinta')
+    } else if (!cuentaCoincide || !titularCoincide) {
+      detalle.resultado_por_chequeo.cuenta_destino_titular = 'no_coincide'
+      if (flags.check_cuenta_destino) revisionFlags.push('cuenta_destino_distinta')
+    } else {
+      detalle.resultado_por_chequeo.cuenta_destino_titular = 'coincide'
+    }
+
     if (montoDetectado === null) {
       // No se pudo leer el monto — chequeo que no se pudo ejecutar:
       // revisión manual, nunca aprobación por defecto.
@@ -345,11 +415,18 @@ Deno.serve(async (req: Request) => {
     detalle.resultado_por_chequeo.unicidad = 'ok'
 
     // ── Si algún chequeo quedó en revisión, no aprobamos ni rechazamos:
-    // queda pendiente de revisión manual. ──
+    // queda pendiente de revisión manual. Si hay un solo motivo, el
+    // `codigo` de respuesta es el específico de ese motivo (p. ej.
+    // CUENTA_DESTINO_DISTINTA); con varios motivos a la vez, el genérico
+    // EN_REVISION — el detalle completo siempre queda en
+    // validacion_detalle.resultado_por_chequeo, sea cual sea el codigo. ──
     if (revisionFlags.length > 0) {
       await escribirAuditoria(supabase, tabla, id, 'revision', detalle)
+      const codigo = revisionFlags.length === 1
+        ? (CODIGO_POR_REVISION[revisionFlags[0]] ?? 'EN_REVISION')
+        : 'EN_REVISION'
       return json({
-        valido: false, ok: false, codigo: 'EN_REVISION',
+        valido: false, ok: false, codigo,
         motivo: 'Tu comprobante quedó en revisión manual, te confirmaremos en breve.',
       })
     }
@@ -404,6 +481,8 @@ type ValidacionDetalle = {
   fecha_pedido: string | null
   monto_comprobante: number | null
   monto_esperado: number
+  cuenta_destino_extraida?: string | null
+  titular_destino_extraido?: string | null
   resultado_por_chequeo: Record<string, string>
   flags_activos: Record<string, boolean>
   timestamp: string
@@ -426,11 +505,42 @@ async function cargarFlags(supabase: ReturnType<typeof createClient>): Promise<R
     check_referencia: true,
     check_frescura: true,
     check_monto_asimetrico: true,
+    check_cuenta_destino: false,
   }
   for (const row of (data ?? []) as { clave: string; valor: boolean }[]) {
     flags[row.clave] = row.valor
   }
   return flags
+}
+
+// Mapea el motivo interno de revisión al `codigo` público de la respuesta
+// cuando es el único motivo activo (ver uso más abajo).
+const CODIGO_POR_REVISION: Record<string, string> = {
+  referencia_pre_deploy: 'REFERENCIA_PENDIENTE',
+  referencia_vacia: 'REFERENCIA_PENDIENTE',
+  frescura_no_parseado: 'FECHA_NO_VERIFICADA',
+  frescura_vieja: 'FECHA_NO_VERIFICADA',
+  monto_ilegible: 'MONTO_NO_LEGIBLE',
+  monto_excedente: 'MONTO_EXCEDENTE',
+  cuenta_destino_distinta: 'CUENTA_DESTINO_DISTINTA',
+}
+
+// Normaliza un número de cuenta para comparar: sin espacios/guiones,
+// insensible a mayúsculas.
+function normalizarCuenta(s: string | null): string | null {
+  if (!s) return null
+  return s.replace(/[\s-]/g, '').toLowerCase()
+}
+
+// Coincidencia parcial de apellidos — el banco emisor puede truncar el
+// nombre del titular en el comprobante.
+function coincideTitular(titular: string | null, apellidos: string[]): boolean {
+  if (!titular) return false
+  const normalizado = titular
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+  return apellidos.some(ap => normalizado.includes(ap))
 }
 
 async function escribirAuditoria(
@@ -591,6 +701,7 @@ async function verificarConClaude(
   imageBase64: string,
   mimeType: string,
   totalEsperado: number,
+  timeoutMs: number,
 ): Promise<Record<string, unknown>> {
   const prompt = `Analiza este comprobante de transferencia bancaria boliviana.
 
@@ -612,25 +723,37 @@ Reglas:
 - titular_destino: nombre del titular de la cuenta destino, si aparece en la imagen. null si no aparece.
 - motivo_rechazo: null si es_comprobante es true. Si es false: razón específica (ej: "La imagen no es un comprobante bancario", "La imagen está borrosa y no se puede verificar")`
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 256,
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'image', source: { type: 'base64', media_type: mimeType, data: imageBase64 } },
-          { type: 'text', text: prompt },
-        ],
-      }],
-    }),
-  })
+  // Antes no había timeout acá — un fetch colgado quedaba a merced del
+  // límite de la plataforma de la Edge Function. AbortController fuerza
+  // el corte a los timeoutMs indicados (ver VISION_TIMEOUT_MS).
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+
+  let res: Response
+  try {
+    res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 256,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mimeType, data: imageBase64 } },
+            { type: 'text', text: prompt },
+          ],
+        }],
+      }),
+      signal: controller.signal,
+    })
+  } finally {
+    clearTimeout(timeoutId)
+  }
 
   if (!res.ok) {
     const body = await res.text()
