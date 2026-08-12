@@ -16,6 +16,30 @@ const CATEGORIAS = [
   { id: 6, nombre: 'Heladerías', emoji: '🍦' },
 ];
 
+// Menú de un negocio para el cliente: productos con foto primero (venden
+// más), después los sin foto — dentro de cada grupo, por categoría y
+// nombre alfabético. Se hace client-side (no en la query) porque ya no
+// hay paginación de productos acá — todo el menú de un negocio se trae
+// de una vez — así que ordenar en memoria es lo más simple y no arriesga
+// romper nada si en el futuro se agrega paginación server-side.
+// También oculta categoria='Prueba' — ítems internos para validar el
+// flujo de pago (ver PRUEBA INTERNA - Ítem Bs. 1 en QTP Carnes y
+// Chapakingo), nunca deben verse en el menú público. Siguen existiendo
+// en la tabla y son pedibles desde el panel del negocio — esto solo
+// filtra la vista del cliente.
+function productosVisibles(productos: any[], negocioId: string) {
+  return productos
+    .filter(p => p.negocio_id === negocioId && p.categoria !== 'Prueba')
+    .sort((a, b) => {
+      const aConFoto = a.imagen_url ? 0 : 1;
+      const bConFoto = b.imagen_url ? 0 : 1;
+      if (aConFoto !== bConFoto) return aConFoto - bConFoto;
+      const catCmp = (a.categoria ?? '').localeCompare(b.categoria ?? '');
+      if (catCmp !== 0) return catCmp;
+      return (a.nombre ?? '').localeCompare(b.nombre ?? '');
+    });
+}
+
 export default function DeliveryScreen() {
   const router = useRouter();
   const { agregarItem, quitarItem, getCantidad, totalItems } = useCarrito();
@@ -224,10 +248,10 @@ export default function DeliveryScreen() {
               {restauranteActivo === rest.id && (
                 <View style={styles.platosBox}>
                   <Text style={styles.platosTitle}>🍴 Menú</Text>
-                  {productos.filter(p => p.negocio_id === rest.id).length === 0 ? (
+                  {productosVisibles(productos, rest.id).length === 0 ? (
                     <Text style={styles.emptyMenuText}>Sin productos disponibles</Text>
                   ) : (
-                    productos.filter(p => p.negocio_id === rest.id).map(plato => (
+                    productosVisibles(productos, rest.id).map(plato => (
                       <View key={plato.id} style={styles.platoRow}>
                         {plato.imagen_url ? (
                           <Image source={{ uri: plato.imagen_url }} style={styles.platoImg} resizeMode="cover" />
