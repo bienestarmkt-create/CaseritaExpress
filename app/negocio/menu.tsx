@@ -277,7 +277,7 @@ export default function MenuScreen() {
         <Image source={{ uri: item.imagen_url }} style={styles.cardImg} resizeMode="cover" />
       ) : (
         <View style={styles.cardImgPlaceholder}>
-          <Text style={styles.cardImgPlaceholderIcon}>🍽️</Text>
+          <Text style={styles.cardImgPlaceholderIcon}>{item.nombre.charAt(0).toUpperCase()}</Text>
         </View>
       )}
       <View style={styles.cardBody}>
@@ -453,8 +453,8 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2,
   },
   cardImg:             { width: 90, height: 90 },
-  cardImgPlaceholder:  { width: 90, height: 90, backgroundColor: '#F3F4F6', justifyContent: 'center', alignItems: 'center' },
-  cardImgPlaceholderIcon: { fontSize: 28 },
+  cardImgPlaceholder:  { width: 90, height: 90, backgroundColor: '#FFF1E6', justifyContent: 'center', alignItems: 'center' },
+  cardImgPlaceholderIcon: { fontSize: 28, fontWeight: '800', color: '#F97316' },
   cardBody:      { flex: 1, padding: 12, gap: 8 },
   cardTop:       { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   cardInfo:      { flex: 1, gap: 2 },

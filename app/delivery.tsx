@@ -229,7 +229,15 @@ export default function DeliveryScreen() {
                   ) : (
                     productos.filter(p => p.negocio_id === rest.id).map(plato => (
                       <View key={plato.id} style={styles.platoRow}>
-                        <Text style={styles.platoEmoji}>🍽️</Text>
+                        {plato.imagen_url ? (
+                          <Image source={{ uri: plato.imagen_url }} style={styles.platoImg} resizeMode="cover" />
+                        ) : (
+                          <View style={styles.platoImgPlaceholder}>
+                            <Text style={styles.platoImgPlaceholderText}>
+                              {plato.nombre.charAt(0).toUpperCase()}
+                            </Text>
+                          </View>
+                        )}
                         <View style={styles.platoInfo}>
                           <Text style={styles.platoNombre}>{plato.nombre}</Text>
                           <Text style={styles.platoDesc}>{plato.descripcion}</Text>
@@ -333,7 +341,12 @@ const styles = StyleSheet.create({
   platosBox: { borderTopWidth: 1, borderTopColor: '#F3F4F6', padding: 16 },
   platosTitle: { fontSize: 15, fontWeight: '700', color: '#1E0A3C', marginBottom: 12 },
   platoRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-  platoEmoji: { fontSize: 28, marginRight: 12 },
+  platoImg: { width: 52, height: 52, borderRadius: 10, marginRight: 12, backgroundColor: '#F3F4F6' },
+  platoImgPlaceholder: {
+    width: 52, height: 52, borderRadius: 10, marginRight: 12,
+    backgroundColor: '#FFF1E6', alignItems: 'center', justifyContent: 'center',
+  },
+  platoImgPlaceholderText: { fontSize: 20, fontWeight: '800', color: '#F97316' },
   platoInfo: { flex: 1 },
   platoNombre: { fontSize: 14, fontWeight: '600', color: '#1E0A3C' },
   platoDesc: { fontSize: 12, color: '#9CA3AF', marginBottom: 2 },
