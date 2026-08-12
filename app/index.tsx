@@ -1,6 +1,6 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, Dimensions, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { BrandColors } from '../constants/theme';
@@ -101,11 +101,22 @@ export default function HomeScreen() {
   }, []);
 
   // Repartidor confirmado: redirigir a su panel sin mostrar antes la vista de cliente.
-  useEffect(() => {
-    if (rolEstado === 'repartidor') {
-      router.replace('/repartidor' as any);
-    }
-  }, [rolEstado]);
+  // useFocusEffect (no useEffect con dep [rolEstado]): las Tabs de expo-router
+  // no desmontan "Inicio" al cambiar de tab — este screen queda vivo en
+  // segundo plano. Con useEffect([rolEstado]), el redirect solo disparaba la
+  // PRIMERA vez que rolEstado pasaba a 'repartidor' (justo después del
+  // login); si el repartidor volvía a tocar "Inicio" más tarde, rolEstado ya
+  // estaba en 'repartidor' desde antes (mismo valor, el effect no vuelve a
+  // correr) y la pantalla quedaba trabada mostrando "Cargando..." para
+  // siempre — nunca redirigía. useFocusEffect corre cada vez que el tab
+  // recupera foco, sin importar si el componente ya estaba montado.
+  useFocusEffect(
+    useCallback(() => {
+      if (rolEstado === 'repartidor') {
+        router.replace('/repartidor' as any);
+      }
+    }, [rolEstado])
+  );
 
   // ── CARGANDO / REDIRIGIENDO: nunca mostrar la vitrina de cliente a un repartidor ──
   if (rolEstado === 'cargando' || rolEstado === 'repartidor') {
