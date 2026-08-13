@@ -202,15 +202,56 @@ export default function CarritoScreen() {
           .update({ referencia_pago: referencia, codigo_referencia: referencia })
           .eq('id', pedido.id);
 
+        // Pasta + salsa obligatoria (ver app/delivery.tsx): cada línea con
+        // salsa se registra como DOS filas reales en detalle_pedidos (la
+        // pasta y la salsa, cada una con su producto_id y precio real) en
+        // vez de una sola fila con el precio combinado — así el negocio ve
+        // qué salsa preparar y las estadísticas de venta por producto no
+        // mezclan el precio de la salsa dentro de la pasta.
+        const filasDetalle = itemsDelivery.flatMap(item => {
+          const productoIdReal = item.productoId ?? item.id;
+          if (item.salsa) {
+            const precioPasta = item.precioBase ?? (item.precio - item.salsa.precio);
+            return [
+              {
+                pedido_id:       pedido.id,
+                producto_id:     productoIdReal,
+                cantidad:        item.cantidad,
+                precio_unitario: precioPasta,
+                subtotal:        precioPasta * item.cantidad,
+              },
+              {
+                pedido_id:       pedido.id,
+                producto_id:     item.salsa.id,
+                cantidad:        item.cantidad,
+                precio_unitario: item.salsa.precio,
+                subtotal:        item.salsa.precio * item.cantidad,
+              },
+            ];
+          }
+          return [{
+            pedido_id:       pedido.id,
+            producto_id:     productoIdReal,
+            cantidad:        item.cantidad,
+            precio_unitario: item.precio,
+            subtotal:        item.precio * item.cantidad,
+          }];
+        });
+
+        // Verificación dura: la suma de detalle_pedidos tiene que cuadrar
+        // exactamente con subtotalDelivery (la base de pedido.total) — un
+        // desfase acá rompe la validación de comprobante. Si no cuadra, se
+        // corta ANTES de insertar nada a medias (cero fallback silencioso).
+        const sumaDetalle = filasDetalle.reduce((acc, f) => acc + f.subtotal, 0);
+        if (Math.round(sumaDetalle * 100) !== Math.round(subtotalDelivery * 100)) {
+          throw new Error(
+            `Descuadre interno pasta+salsa: detalle_pedidos suma Bs. ${sumaDetalle} pero el subtotal del pedido es Bs. ${subtotalDelivery}.`
+          );
+        }
+
         const { error: errorDetalle } = await supabase
           .from('detalle_pedidos')
-          .insert(itemsDelivery.map(item => ({
-            pedido_id:      pedido.id,
-            producto_id:    item.id,
-            cantidad:       item.cantidad,
-            precio_unitario:item.precio,
-            subtotal:       item.precio * item.cantidad,
-          })));
+          .insert(filasDetalle);
 
         if (errorDetalle) throw errorDetalle;
 
@@ -376,6 +417,9 @@ export default function CarritoScreen() {
                     <View style={styles.itemInfo}>
                       <Text style={styles.itemNombre}>{item.nombre}</Text>
                       <Text style={styles.itemDetalle}>{item.detalle}</Text>
+                      {item.salsa && (
+                        <Text style={styles.itemSalsa}>+ {item.salsa.nombre}</Text>
+                      )}
                       <Text style={styles.itemPrecio}>Bs. {item.precio} c/u</Text>
                     </View>
                     <View style={styles.itemControls}>
@@ -594,6 +638,7 @@ const styles = StyleSheet.create({
   itemInfo:     { flex: 1 },
   itemNombre:   { fontSize: 14, fontWeight: '700', color: '#1E0A3C', marginBottom: 2 },
   itemDetalle:  { fontSize: 12, color: '#9CA3AF', marginBottom: 2 },
+  itemSalsa:    { fontSize: 12, color: '#F97316', fontWeight: '600', marginBottom: 2 },
   itemPrecio:   { fontSize: 13, color: '#6B7280' },
   itemControls: { flexDirection: 'row', alignItems: 'center', marginRight: 8 },
   controlBtn:   { width: 28, height: 28, borderRadius: 14, backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center' },

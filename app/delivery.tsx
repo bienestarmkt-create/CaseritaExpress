@@ -1,7 +1,7 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useCarrito } from '../context/CarritoContext';
 import { useCiudad } from '../context/CiudadContext';
 import StarRating from '../components/StarRating';
@@ -16,6 +16,13 @@ const CATEGORIAS = [
   { id: 6, nombre: 'Heladerías', emoji: '🍦' },
 ];
 
+// Categorías de producto que obligan a elegir una salsa (categoría
+// 'Salsas', mismo negocio) antes de agregar al carrito. Se activa por
+// categoría del producto, no por negocio — cualquier negocio que cargue
+// pastas con este mismo esquema de categorías obtiene el modal gratis;
+// un negocio sin estas categorías (ej. QTP Carnes) nunca lo ve.
+const CATEGORIAS_PASTA_CON_SALSA = ['Pastas Largas', 'Pastas Cortas', 'Pastas Rellenas', 'Pastas al Horno'];
+
 // Menú de un negocio para el cliente: productos con foto primero (venden
 // más), después los sin foto — dentro de cada grupo, por categoría y
 // nombre alfabético. Se hace client-side (no en la query) porque ya no
@@ -27,9 +34,13 @@ const CATEGORIAS = [
 // Chapakingo), nunca deben verse en el menú público. Siguen existiendo
 // en la tabla y son pedibles desde el panel del negocio — esto solo
 // filtra la vista del cliente.
+// Las salsas (categoría 'Salsas') no se muestran como producto pedible
+// suelto — solo existen como opción dentro del modal de pasta+salsa (ver
+// CATEGORIAS_PASTA_CON_SALSA más abajo). Los registros siguen intactos
+// en la tabla, esto solo filtra la vista del cliente.
 function productosVisibles(productos: any[], negocioId: string) {
   return productos
-    .filter(p => p.negocio_id === negocioId && p.categoria !== 'Prueba')
+    .filter(p => p.negocio_id === negocioId && p.categoria !== 'Prueba' && p.categoria !== 'Salsas')
     .sort((a, b) => {
       const aConFoto = a.imagen_url ? 0 : 1;
       const bConFoto = b.imagen_url ? 0 : 1;
@@ -42,7 +53,7 @@ function productosVisibles(productos: any[], negocioId: string) {
 
 export default function DeliveryScreen() {
   const router = useRouter();
-  const { agregarItem, quitarItem, getCantidad, totalItems } = useCarrito();
+  const { agregarItem, quitarItem, getCantidad, getCantidadBase, totalItems } = useCarrito();
   const { ciudad: ciudadGlobal, ciudadesActivas } = useCiudad();
   // Ciudades activas reales (tabla `ciudades`) — ya no una lista fija.
   const CIUDADES = ['Todas', ...ciudadesActivas];
@@ -58,6 +69,12 @@ export default function DeliveryScreen() {
   const [tarifasEnvio, setTarifasEnvio] = useState<Record<string, number>>({});
   const [cargando, setCargando] = useState(true);
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
+
+  // ── Modal de salsa obligatoria (pasta + salsa) ────────────────
+  const [modalSalsaVisible, setModalSalsaVisible] = useState(false);
+  const [platoParaSalsa, setPlatoParaSalsa] = useState<any | null>(null);
+  const [negocioParaSalsa, setNegocioParaSalsa] = useState<any | null>(null);
+  const [salsaElegida, setSalsaElegida] = useState<any | null>(null);
 
   useEffect(() => {
     cargarDatos();
@@ -116,6 +133,45 @@ export default function DeliveryScreen() {
     const coincideCiudad = ciudadActiva === 'Todas' || r.ciudad === ciudadActiva;
     return coincideBusqueda && coincideCiudad;
   });
+
+  // Salsas disponibles del negocio activo en el modal (ya vienen
+  // disponible=true desde cargarDatos, no hace falta refiltrar).
+  const salsasDisponibles = negocioParaSalsa
+    ? productos.filter(p => p.negocio_id === negocioParaSalsa.id && p.categoria === 'Salsas')
+    : [];
+
+  const abrirModalSalsa = (plato: any, rest: any) => {
+    setPlatoParaSalsa(plato);
+    setNegocioParaSalsa(rest);
+    setSalsaElegida(null);
+    setModalSalsaVisible(true);
+  };
+
+  const cerrarModalSalsa = () => {
+    setModalSalsaVisible(false);
+    setPlatoParaSalsa(null);
+    setNegocioParaSalsa(null);
+    setSalsaElegida(null);
+  };
+
+  const confirmarAgregarConSalsa = () => {
+    // El botón de confirmar ya está disabled sin salsa elegida — esto es
+    // solo defensivo, nunca debería dispararse sin los tres datos.
+    if (!platoParaSalsa || !negocioParaSalsa || !salsaElegida) return;
+    agregarItem({
+      id:         `${platoParaSalsa.id}__${salsaElegida.id}`,
+      productoId: platoParaSalsa.id,
+      nombre:     platoParaSalsa.nombre,
+      precio:     platoParaSalsa.precio + salsaElegida.precio,
+      precioBase: platoParaSalsa.precio,
+      salsa:      { id: salsaElegida.id, nombre: salsaElegida.nombre, precio: salsaElegida.precio },
+      emoji:      '🍝',
+      tipo:       'delivery',
+      detalle:    negocioParaSalsa.nombre,
+      negocio_id: negocioParaSalsa.id,
+    });
+    cerrarModalSalsa();
+  };
 
   return (
     <View style={styles.container}>
@@ -251,7 +307,9 @@ export default function DeliveryScreen() {
                   {productosVisibles(productos, rest.id).length === 0 ? (
                     <Text style={styles.emptyMenuText}>Sin productos disponibles</Text>
                   ) : (
-                    productosVisibles(productos, rest.id).map(plato => (
+                    productosVisibles(productos, rest.id).map(plato => {
+                      const requiereSalsa = CATEGORIAS_PASTA_CON_SALSA.includes(plato.categoria);
+                      return (
                       <View key={plato.id} style={styles.platoRow}>
                         {plato.imagen_url ? (
                           <Image source={{ uri: plato.imagen_url }} style={styles.platoImg} resizeMode="cover" />
@@ -268,7 +326,7 @@ export default function DeliveryScreen() {
                           <Text style={styles.platoPrecio}>Bs. {plato.precio}</Text>
                         </View>
                         <View style={styles.platoControls}>
-                          {getCantidad(plato.id) > 0 ? (
+                          {!requiereSalsa && getCantidad(plato.id) > 0 ? (
                             <>
                               <TouchableOpacity style={styles.controlBtn} onPress={() => quitarItem(plato.id)}>
                                 <Text style={styles.controlText}>−</Text>
@@ -276,20 +334,33 @@ export default function DeliveryScreen() {
                               <Text style={styles.controlCantidad}>{getCantidad(plato.id)}</Text>
                             </>
                           ) : null}
-                          <TouchableOpacity style={styles.agregarBtn} onPress={() => agregarItem({
-                            id: plato.id,
-                            nombre: plato.nombre,
-                            precio: plato.precio,
-                            emoji: '🍽️',
-                            tipo: 'delivery',
-                            detalle: rest.nombre,
-                            negocio_id: rest.id,
-                          })}>
+                          {/* Con salsa la cantidad puede estar repartida en varias
+                              líneas del carrito (una por salsa elegida) — no hay
+                              un único "−" válido acá; se ajusta cada línea desde
+                              la pantalla del carrito. Solo se muestra el total. */}
+                          {requiereSalsa && getCantidadBase(plato.id) > 0 ? (
+                            <Text style={styles.controlCantidad}>{getCantidadBase(plato.id)}</Text>
+                          ) : null}
+                          <TouchableOpacity
+                            style={styles.agregarBtn}
+                            onPress={() => requiereSalsa
+                              ? abrirModalSalsa(plato, rest)
+                              : agregarItem({
+                                  id: plato.id,
+                                  nombre: plato.nombre,
+                                  precio: plato.precio,
+                                  emoji: '🍽️',
+                                  tipo: 'delivery',
+                                  detalle: rest.nombre,
+                                  negocio_id: rest.id,
+                                })}
+                          >
                             <Text style={styles.agregarText}>+</Text>
                           </TouchableOpacity>
                         </View>
                       </View>
-                    ))
+                      );
+                    })
                   )}
                 </View>
               )}
@@ -308,6 +379,61 @@ export default function DeliveryScreen() {
           </TouchableOpacity>
         </View>
       )}
+
+      {/* ── Modal: salsa obligatoria para pastas ── */}
+      <Modal visible={modalSalsaVisible} transparent animationType="slide" onRequestClose={cerrarModalSalsa}>
+        <Pressable style={styles.salsaOverlay} onPress={cerrarModalSalsa}>
+          <Pressable style={styles.salsaSheet} onPress={() => {}}>
+            <View style={styles.salsaHandle} />
+            <Text style={styles.salsaTitle}>Elige tu salsa</Text>
+            <Text style={styles.salsaSubtitle}>{platoParaSalsa?.nombre}</Text>
+
+            <ScrollView style={styles.salsaLista} showsVerticalScrollIndicator={false}>
+              {salsasDisponibles.length === 0 ? (
+                <Text style={styles.salsaVacio}>
+                  Este negocio no configuró salsas disponibles todavía. No se puede agregar este plato por ahora.
+                </Text>
+              ) : (
+                salsasDisponibles.map(salsa => (
+                  <TouchableOpacity
+                    key={salsa.id}
+                    style={[styles.salsaOpcion, salsaElegida?.id === salsa.id && styles.salsaOpcionActiva]}
+                    onPress={() => setSalsaElegida(salsa)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.salsaOpcionNombre, salsaElegida?.id === salsa.id && styles.salsaOpcionTextoActivo]}>
+                      {salsa.nombre}
+                    </Text>
+                    <Text style={[styles.salsaOpcionPrecio, salsaElegida?.id === salsa.id && styles.salsaOpcionTextoActivo]}>
+                      + Bs. {salsa.precio}
+                    </Text>
+                  </TouchableOpacity>
+                ))
+              )}
+            </ScrollView>
+
+            <View style={styles.salsaPrecioBox}>
+              <Text style={styles.salsaPrecioTexto}>
+                {salsaElegida
+                  ? `${platoParaSalsa?.nombre} + ${salsaElegida.nombre} = Bs. ${(platoParaSalsa?.precio ?? 0) + salsaElegida.precio}`
+                  : 'Elige una salsa para ver el precio final'}
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.salsaBtnAgregar, !salsaElegida && styles.salsaBtnDisabled]}
+              onPress={confirmarAgregarConSalsa}
+              disabled={!salsaElegida}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.salsaBtnAgregarText}>✅ Agregar al carrito</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.salsaBtnCancelar} onPress={cerrarModalSalsa} activeOpacity={0.7}>
+              <Text style={styles.salsaBtnCancelarText}>Cancelar</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -385,5 +511,36 @@ const styles = StyleSheet.create({
   footerBtn: { borderRadius: 16, overflow: 'hidden' },
   footerGradient: { padding: 18, alignItems: 'center' },
   footerText: { color: '#FFF', fontSize: 17, fontWeight: '800' },
+
+  // ── Modal salsa obligatoria ──
+  salsaOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  salsaSheet: {
+    backgroundColor: '#FFF', borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    paddingHorizontal: 20, paddingBottom: 32, paddingTop: 12, maxHeight: '80%',
+  },
+  salsaHandle: { width: 44, height: 5, backgroundColor: '#E5E7EB', borderRadius: 3, alignSelf: 'center', marginBottom: 16 },
+  salsaTitle: { fontSize: 18, fontWeight: '800', color: '#1E0A3C', textAlign: 'center' },
+  salsaSubtitle: { fontSize: 14, color: '#9CA3AF', textAlign: 'center', marginTop: 2, marginBottom: 16 },
+  salsaLista: { maxHeight: 300 },
+  salsaVacio: { fontSize: 13, color: '#EF4444', textAlign: 'center', paddingVertical: 24, lineHeight: 19 },
+  salsaOpcion: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingVertical: 12, paddingHorizontal: 14, borderRadius: 12,
+    backgroundColor: '#F9FAFB', borderWidth: 1.5, borderColor: '#E5E7EB', marginBottom: 8,
+  },
+  salsaOpcionActiva: { backgroundColor: '#FFF7ED', borderColor: '#F97316' },
+  salsaOpcionNombre: { fontSize: 14, fontWeight: '600', color: '#1E0A3C' },
+  salsaOpcionPrecio: { fontSize: 13, fontWeight: '700', color: '#6B7280' },
+  salsaOpcionTextoActivo: { color: '#EA580C' },
+  salsaPrecioBox: {
+    backgroundColor: '#F0FDF4', borderRadius: 12, padding: 14, marginTop: 12, marginBottom: 16,
+    borderWidth: 1, borderColor: '#BBF7D0',
+  },
+  salsaPrecioTexto: { fontSize: 13, fontWeight: '700', color: '#166534', textAlign: 'center', lineHeight: 19 },
+  salsaBtnAgregar: { backgroundColor: '#F97316', borderRadius: 14, paddingVertical: 15, alignItems: 'center' },
+  salsaBtnDisabled: { opacity: 0.4 },
+  salsaBtnAgregarText: { color: '#FFF', fontWeight: '800', fontSize: 15 },
+  salsaBtnCancelar: { paddingVertical: 12, alignItems: 'center' },
+  salsaBtnCancelarText: { color: '#9CA3AF', fontSize: 14, fontWeight: '600' },
 });
 
