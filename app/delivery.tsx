@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useCarrito } from '../context/CarritoContext';
 import { useCiudad } from '../context/CiudadContext';
+import HeaderCiudad from '../components/HeaderCiudad';
 import StarRating from '../components/StarRating';
 import { supabase } from '../lib/supabase';
 
@@ -54,14 +55,12 @@ function productosVisibles(productos: any[], negocioId: string) {
 export default function DeliveryScreen() {
   const router = useRouter();
   const { agregarItem, quitarItem, getCantidad, getCantidadBase, totalItems } = useCarrito();
-  const { ciudad: ciudadGlobal, ciudadesActivas } = useCiudad();
-  // Ciudades activas reales (tabla `ciudades`) — ya no una lista fija.
-  const CIUDADES = ['Todas', ...ciudadesActivas];
+  // Ciudad global (detectada por geolocalización o elegida a mano desde
+  // el header "Entregando en" — ver components/HeaderCiudad.tsx). AppShell
+  // no deja llegar acá sin ciudad resuelta.
+  const { ciudad } = useCiudad();
   const [busqueda, setBusqueda] = useState('');
   const [categoriaActiva, setCategoriaActiva] = useState('Restaurantes');
-  // Arranca en la ciudad activa del cliente (ver context/CiudadContext) —
-  // el filtro sigue siendo editable acá mismo si quiere mirar otra ciudad.
-  const [ciudadActiva, setCiudadActiva] = useState(ciudadGlobal ?? 'Todas');
   const [restauranteActivo, setRestauranteActivo] = useState<string | null>(null);
   const [restaurantes, setRestaurantes] = useState<any[]>([]);
   const [productos, setProductos] = useState<any[]>([]);
@@ -130,7 +129,7 @@ export default function DeliveryScreen() {
 
   const restaurantesFiltrados = restaurantes.filter(r => {
     const coincideBusqueda = r.nombre.toLowerCase().includes(busqueda.toLowerCase());
-    const coincideCiudad = ciudadActiva === 'Todas' || r.ciudad === ciudadActiva;
+    const coincideCiudad = r.ciudad === ciudad;
     return coincideBusqueda && coincideCiudad;
   });
 
@@ -193,6 +192,7 @@ export default function DeliveryScreen() {
             </TouchableOpacity>
           )}
         </View>
+        <HeaderCiudad />
         <View style={styles.searchBox}>
           <Text>🔍 </Text>
           <TextInput
@@ -204,20 +204,6 @@ export default function DeliveryScreen() {
           />
         </View>
       </LinearGradient>
-
-      {/* Selector de ciudad */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.ciudadesBar} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
-        {CIUDADES.map(ciudad => (
-          <TouchableOpacity
-            key={ciudad}
-            onPress={() => setCiudadActiva(ciudad)}
-            style={[styles.ciudadBtn, ciudadActiva === ciudad && styles.ciudadBtnActivo]}>
-            <Text style={[styles.ciudadText, ciudadActiva === ciudad && styles.ciudadTextActivo]}>
-              {ciudad === 'Todas' ? '📍 Todas' : `🏙️ ${ciudad}`}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.banner}>
@@ -243,9 +229,7 @@ export default function DeliveryScreen() {
           ))}
         </ScrollView>
 
-        <Text style={styles.sectionTitle}>
-          {ciudadActiva === 'Todas' ? 'Cerca de ti' : `En ${ciudadActiva}`}
-        </Text>
+        <Text style={styles.sectionTitle}>En {ciudad}</Text>
 
         {cargando ? (
           <View style={styles.loadingBox}>
@@ -264,7 +248,7 @@ export default function DeliveryScreen() {
         ) : restaurantesFiltrados.length === 0 ? (
           <View style={styles.emptyBox}>
             <Text style={styles.emptyEmoji}>🍽️</Text>
-            <Text style={styles.emptyText}>No se encontraron restaurantes{ciudadActiva !== 'Todas' ? ` en ${ciudadActiva}` : ''}</Text>
+            <Text style={styles.emptyText}>No se encontraron restaurantes en {ciudad}</Text>
           </View>
         ) : (
           restaurantesFiltrados.map(rest => (
@@ -452,11 +436,6 @@ const styles = StyleSheet.create({
   carritoBadgeText: { fontSize: 11, fontWeight: '800', color: '#F97316' },
   searchBox: { flexDirection: 'row', backgroundColor: '#FFF', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, alignItems: 'center' },
   searchInput: { flex: 1, fontSize: 15, color: '#1E0A3C' },
-  ciudadesBar: { paddingVertical: 10, maxHeight: 52, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
-  ciudadBtn: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#E5E7EB' },
-  ciudadBtnActivo: { backgroundColor: '#F97316', borderColor: '#F97316' },
-  ciudadText: { fontSize: 12, color: '#6B7280', fontWeight: '600' },
-  ciudadTextActivo: { color: '#FFF' },
   content: { flex: 1, padding: 16 },
   banner: { flexDirection: 'row', backgroundColor: '#FFF7ED', borderRadius: 16, padding: 16, marginBottom: 20, alignItems: 'center', gap: 12, borderWidth: 1, borderColor: '#FED7AA' },
   bannerEmoji: { fontSize: 32 },

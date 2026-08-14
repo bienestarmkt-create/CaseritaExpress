@@ -6,6 +6,7 @@ import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-nativ
 import { useCarrito } from '../context/CarritoContext';
 import { CiudadProvider, useCiudad } from '../context/CiudadContext';
 import SelectorCiudad from '../components/SelectorCiudad';
+import FueraCobertura from '../components/FueraCobertura';
 import { registerPushToken } from '../lib/notifications';
 import { supabase } from '../lib/supabase';
 import { registerServiceWorker, setupPedidosRealtime, subscribeToPush } from '../lib/usePush';
@@ -131,14 +132,29 @@ export default function RootLayout() {
 }
 
 function AppShell({ rol }: { rol: string | null }) {
-  const { ciudad, cargando } = useCiudad();
+  const { ciudad, cargando, estadoUbicacion } = useCiudad();
   const esRepartidor = rol === 'repartidor';
   const esAdmin      = rol === 'admin';
 
-  // Selector de ciudad de primer arranque — mismas superficies que ya
-  // navegan delivery/stay/eventos (todo menos repartidor).
-  if (!esRepartidor && !cargando && !ciudad) {
-    return <SelectorCiudad />;
+  // Resolución de ciudad — mismas superficies que ya navegan
+  // delivery/stay/eventos (todo menos repartidor). `cargando` cubre
+  // tanto el fetch de `ciudades` como, si hace falta, la geolocalización
+  // (máx. 8s, ver CiudadContext) — nunca queda destapado un Tabs sin
+  // ciudad resuelta detrás. Al salir de cargando, siempre hay una
+  // pantalla lista: catálogo (ciudad resuelta), captura de WhatsApp
+  // (fuera de cobertura) o selector manual — nunca se traba.
+  if (!esRepartidor) {
+    if (cargando) {
+      return (
+        <View style={{ flex: 1, backgroundColor: '#1E0A3C', alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator size="large" color="#F97316" />
+        </View>
+      );
+    }
+    if (!ciudad) {
+      if (estadoUbicacion === 'fuera_cobertura') return <FueraCobertura />;
+      return <SelectorCiudad />;
+    }
   }
 
   return (

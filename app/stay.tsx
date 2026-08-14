@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useCarrito } from '../context/CarritoContext';
 import { useCiudad } from '../context/CiudadContext';
+import HeaderCiudad from '../components/HeaderCiudad';
 import { supabase } from '../lib/supabase';
 import { BrandColors } from '../constants/theme';
 
@@ -13,11 +14,10 @@ const hoy = new Date();
 export default function StayScreen() {
   const router = useRouter();
   const { agregarItem, totalItems } = useCarrito();
-  const { ciudad: ciudadGlobal, ciudadesActivas } = useCiudad();
-  // Ciudades activas reales (tabla `ciudades`) — ya no una lista fija.
-  const CIUDADES = ['Todos', ...ciudadesActivas];
-  // Arranca en la ciudad activa del cliente (ver context/CiudadContext).
-  const [filtroCiudad, setFiltroCiudad] = useState(ciudadGlobal ?? 'Todos');
+  // Ciudad global (detectada por geolocalización o elegida a mano desde
+  // el header "Entregando en" — ver components/HeaderCiudad.tsx). AppShell
+  // no deja llegar acá sin ciudad resuelta.
+  const { ciudad } = useCiudad();
   const [soloOfertas, setSoloOfertas] = useState(false);
   const [alojamientoActivo, setAlojamientoActivo] = useState<string | null>(null);
   const [modalReserva, setModalReserva] = useState<any | null>(null);
@@ -53,10 +53,7 @@ export default function StayScreen() {
     }
   };
 
-  const alojamientosFiltrados = alojamientos.filter(a => {
-    if (filtroCiudad !== 'Todos' && a.ciudad !== filtroCiudad) return false;
-    return true;
-  });
+  const alojamientosFiltrados = alojamientos.filter(a => a.ciudad === ciudad);
 
   const noches = fechaEntrada && fechaSalida ? Math.abs(fechaSalida - fechaEntrada) : 1;
 
@@ -102,16 +99,10 @@ export default function StayScreen() {
             </TouchableOpacity>
           )}
         </View>
+        <HeaderCiudad />
       </LinearGradient>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filtrosBar} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
-        {CIUDADES.map(c => (
-          <TouchableOpacity key={c} onPress={() => setFiltroCiudad(c)} style={[styles.filtroBtn, filtroCiudad === c && styles.filtroBtnActivo]}>
-            <Text style={[styles.filtroText, filtroCiudad === c && styles.filtroTextActivo]}>
-              {c === 'Todos' ? '📍 Todos' : `🏙️ ${c}`}
-            </Text>
-          </TouchableOpacity>
-        ))}
         <TouchableOpacity onPress={() => setSoloOfertas(!soloOfertas)} style={[styles.filtroBtn, soloOfertas && styles.filtroBtnOferta]}>
           <Text style={[styles.filtroText, soloOfertas && styles.filtroTextActivo]}>🔥 Ofertas</Text>
         </TouchableOpacity>
@@ -133,7 +124,7 @@ export default function StayScreen() {
           </View>
         ) : (
           <>
-            <Text style={styles.resultados}>{alojamientosFiltrados.length} alojamientos disponibles{filtroCiudad !== 'Todos' ? ` en ${filtroCiudad}` : ''}</Text>
+            <Text style={styles.resultados}>{alojamientosFiltrados.length} alojamientos disponibles en {ciudad}</Text>
             {alojamientosFiltrados.map(aloj => (
               <TouchableOpacity
                 key={aloj.id}

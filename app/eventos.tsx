@@ -4,21 +4,21 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useCarrito } from '../context/CarritoContext';
 import { useCiudad } from '../context/CiudadContext';
+import HeaderCiudad from '../components/HeaderCiudad';
 import { supabase } from '../lib/supabase';
 import { BrandColors } from '../constants/theme';
 
 export default function EventosScreen() {
   const router = useRouter();
   const { agregarItem, totalItems } = useCarrito();
-  const { ciudad: ciudadGlobal, ciudadesActivas } = useCiudad();
-  // Ciudades activas reales (tabla `ciudades`) — ya no una lista fija.
-  const CIUDADES = ['Todas', ...ciudadesActivas];
+  // Ciudad global (detectada por geolocalización o elegida a mano desde
+  // el header "Entregando en" — ver components/HeaderCiudad.tsx). AppShell
+  // no deja llegar acá sin ciudad resuelta.
+  const { ciudad } = useCiudad();
   const [eventos, setEventos] = useState<any[]>([]);
   const [cargando, setCargando] = useState(true);
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
   const [categoriaActiva, setCategoriaActiva] = useState('Todos');
-  // Arranca en la ciudad activa del cliente (ver context/CiudadContext).
-  const [ciudadActiva, setCiudadActiva] = useState(ciudadGlobal ?? 'Todas');
   const [eventoActivo, setEventoActivo] = useState<string | null>(null);
   const [ticketsSeleccionados, setTicketsSeleccionados] = useState<{[key: string]: number}>({});
 
@@ -52,7 +52,7 @@ export default function EventosScreen() {
 
   const eventosFiltrados = eventos.filter(e => {
     const coincideCategoria = categoriaActiva === 'Todos' || e.categoria === categoriaActiva;
-    const coincideCiudad = ciudadActiva === 'Todas' || e.ciudad === ciudadActiva;
+    const coincideCiudad = e.ciudad === ciudad;
     return coincideCategoria && coincideCiudad;
   });
 
@@ -100,21 +100,8 @@ export default function EventosScreen() {
             </TouchableOpacity>
           )}
         </View>
+        <HeaderCiudad />
       </LinearGradient>
-
-      {/* Selector de ciudad */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.ciudadesBar} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
-        {CIUDADES.map(ciudad => (
-          <TouchableOpacity
-            key={ciudad}
-            onPress={() => setCiudadActiva(ciudad)}
-            style={[styles.ciudadBtn, ciudadActiva === ciudad && styles.ciudadBtnActivo]}>
-            <Text style={[styles.ciudadText, ciudadActiva === ciudad && styles.ciudadTextActivo]}>
-              {ciudad === 'Todas' ? '📍 Todas' : `🏙️ ${ciudad}`}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
 
       {/* Selector de categoría */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filtrosBar} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
@@ -142,7 +129,7 @@ export default function EventosScreen() {
         ) : eventosFiltrados.length === 0 ? (
           <View style={styles.emptyBox}>
             <Text style={styles.emptyEmoji}>🎪</Text>
-            <Text style={styles.emptyText}>No hay eventos{ciudadActiva !== 'Todas' ? ` en ${ciudadActiva}` : ''}</Text>
+            <Text style={styles.emptyText}>No hay eventos en {ciudad}</Text>
           </View>
         ) : (
           eventosFiltrados.map(evento => (
@@ -226,11 +213,6 @@ const styles = StyleSheet.create({
   carritoEmoji: { fontSize: 28 },
   carritoBadge: { position: 'absolute', top: 0, right: 0, backgroundColor: '#FFF', borderRadius: 10, width: 20, height: 20, alignItems: 'center', justifyContent: 'center' },
   carritoBadgeText: { fontSize: 11, fontWeight: '800', color: BrandColors.primary },
-  ciudadesBar: { paddingVertical: 10, maxHeight: 52, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
-  ciudadBtn: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#E5E7EB' },
-  ciudadBtnActivo: { backgroundColor: BrandColors.primary, borderColor: BrandColors.primary },
-  ciudadText: { fontSize: 12, color: '#6B7280', fontWeight: '600' },
-  ciudadTextActivo: { color: '#FFF' },
   filtrosBar: { paddingVertical: 10, maxHeight: 52, backgroundColor: '#FAFAFA', borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
   filtroBtn: { paddingHorizontal: 16, paddingVertical: 6, borderRadius: 20, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#E5E7EB' },
   filtroBtnActivo: { backgroundColor: BrandColors.primary, borderColor: BrandColors.primary },
