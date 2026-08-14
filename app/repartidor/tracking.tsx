@@ -3,19 +3,20 @@
  * ─────────────────────────────────────────────────────────────
  * Panel Repartidor — Tracking GPS
  *
- * - Transmisión de ubicación 100% automática: se activa sola en
- *   cuanto el repartidor tiene un pedido asignado en estado
- *   'en_camino', y se detiene sola si deja de estarlo. El switch
- *   en pantalla es solo un indicador visual, no un control manual.
- * - GPS continuo cada 10 s con expo-location.
- * - Upsert en tabla ubicaciones_repartidores (conflict: pedido_id).
- * - Escucha cambios de pedido en tiempo real (Realtime) para
- *   detectar la transición a 'en_camino' sin recargar la pantalla.
- * - Muestra coordenadas actuales, última actualización, estado.
+ * Pantalla de ESTADO/diagnóstico — ya no dueña de la transmisión. El
+ * watch GPS + upsert a `ubicaciones_repartidores` vive ahora en
+ * context/TrackingRepartidorContext.tsx, montado en
+ * app/repartidor/_layout.tsx (persiste entre pestañas — ver el
+ * comentario largo en ese contexto para el porqué: esta pantalla se
+ * desmontaba al navegar a "Mapa", que es justamente adonde va un
+ * repartidor durante una entrega real, así que la transmisión se
+ * cortaba sola). Esta pantalla solo LEE ese estado compartido para
+ * mostrar coordenadas, última actualización y errores — el aviso
+ * crítico ya no depende de que el repartidor esté parado acá (ver
+ * AvisoTrackingGlobal en _layout.tsx).
  * ─────────────────────────────────────────────────────────────
  */
 
-import { useEffect, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Platform,
@@ -26,9 +27,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native'
-import * as Location from 'expo-location'
-import { supabase } from '../../lib/supabase'
-import { watchPositionWeb, type GeoErrorTipo, type GeoSubscription } from '../../lib/geolocationWeb'
+import { useTrackingRepartidor } from '../../context/TrackingRepartidorContext'
 
 // ─── Tema ─────────────────────────────────────────────────────
 const C = {
@@ -44,217 +43,10 @@ const C = {
 
 // ─── Componente principal ─────────────────────────────────────
 export default function TrackingScreen() {
-  const [userId,       setUserId]       = useState<string | null>(null)
-  const [pedidoId,     setPedidoId]     = useState<string | null>(null)  // pedido activo asignado
-  const [pedidoEstado, setPedidoEstado] = useState<string | null>(null)  // estado del pedido activo
-  const [pedidoError,  setPedidoError]  = useState(false)                // falló la consulta del pedido activo
-  // En web no hay paso previo de "pedir permiso": expo-location en web puede
-  // devolver 'denied' sin que el navegador llegue a mostrar el popup real.
-  // navigator.geolocation.watchPosition() es lo que realmente lo dispara, así
-  // que en web arrancamos optimistas (true) y dejamos que el propio intento
-  // de watch confirme o desmienta el permiso.
-  const [permisoOk,    setPermisoOk]    = useState<boolean | null>(Platform.OS === 'web' ? true : null)
-  const [gpsError,     setGpsError]     = useState<{ tipo: GeoErrorTipo; mensaje: string } | null>(null)
-  const [lat,          setLat]          = useState<number | null>(null)
-  const [lng,          setLng]          = useState<number | null>(null)
-  const [ultimaVez,    setUltimaVez]    = useState<Date | null>(null)
-  const [enviando,     setEnviando]     = useState(false)
-  const [errorMsg,     setErrorMsg]     = useState<string | null>(null)
-
-  const locationSub = useRef<Location.LocationSubscription | GeoSubscription | null>(null)
-  // Apunta siempre a la última versión de enviarUbicacion (definida dentro
-  // del efecto de abajo, con pedidoId/userId ya cerrados) para poder
-  // reintentar manualmente desde el botón sin duplicar la lógica de envío.
-  const enviarUbicacionRef = useRef<((lat: number, lng: number) => Promise<void>) | null>(null)
-
-  // Evita que el upsert cuelgue para siempre cuando la red se queda muda
-  // (mismo patrón que app/repartidor/mapa.tsx).
-  const conTimeout = <T,>(promesa: PromiseLike<T>, ms: number): Promise<T> => {
-    return Promise.race([
-      promesa,
-      new Promise<T>((_, reject) => setTimeout(() => reject(new Error('Tiempo de espera agotado')), ms)),
-    ])
-  }
-
-  // Transmisión automática: solo depende de tener permiso + pedido 'en_camino'.
-  const activo = permisoOk === true && !!pedidoId && pedidoEstado === 'en_camino'
-
-  // ── Obtener usuario y pedir permiso (solo native) ──────────
-  useEffect(() => {
-    const init = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) setUserId(user.id)
-
-      if (Platform.OS !== 'web') {
-        const { status } = await Location.requestForegroundPermissionsAsync()
-        setPermisoOk(status === 'granted')
-      }
-      // En web el permiso se pide implícitamente al arrancar el watch más
-      // abajo, no acá (ver comentario en el useState de permisoOk).
-    }
-    init()
-  }, [])
-
-  // ── Buscar el pedido activo asignado a este repartidor ────
-  // El tracking se envía por pedido (ubicaciones_repartidores.pedido_id
-  // es UNIQUE). Se re-consulta ante cualquier cambio en los pedidos del
-  // repartidor (Realtime) para detectar la transición a 'en_camino' sin
-  // que el repartidor tenga que recargar la pantalla.
-  useEffect(() => {
-    if (!userId) return
-
-    let cancelled = false
-    let retryTimer: ReturnType<typeof setTimeout> | null = null
-
-    const fetchPedidoActivo = async () => {
-      const { data, error } = await supabase
-        .from('pedidos')
-        .select('id, estado')
-        .eq('repartidor_id', userId)
-        .in('estado', ['confirmado', 'preparando', 'en_camino'])
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-
-      if (cancelled) return
-
-      if (error) {
-        setPedidoError(true)
-        retryTimer = setTimeout(fetchPedidoActivo, 5000)
-        return
-      }
-
-      setPedidoError(false)
-      setPedidoId(data?.id ?? null)
-      setPedidoEstado(data?.estado ?? null)
-    }
-
-    fetchPedidoActivo()
-
-    const channel = supabase
-      .channel(`repartidor-pedido-activo-${userId}`)
-      .on('postgres_changes', {
-        event: '*', schema: 'public', table: 'pedidos',
-        filter: `repartidor_id=eq.${userId}`,
-      }, () => fetchPedidoActivo())
-      .subscribe()
-
-    return () => {
-      cancelled = true
-      if (retryTimer) clearTimeout(retryTimer)
-      supabase.removeChannel(channel)
-    }
-  }, [userId])
-
-  // ── Limpiar datos mostrados cuando la transmisión se apaga ─
-  useEffect(() => {
-    if (!activo) {
-      setLat(null)
-      setLng(null)
-      setUltimaVez(null)
-      setErrorMsg(null)
-      setGpsError(null)
-    }
-  }, [activo])
-
-  // ── Watch GPS cuando activo ───────────────────────────────
-  // Native: expo-location, sin cambios. Web: navigator.geolocation directo
-  // (ver lib/geolocationWeb.ts) — es lo único que dispara el popup real del
-  // navegador; expo-location en web puede resolver a 'denied' sin mostrarlo.
-  useEffect(() => {
-    if (!activo || !userId || !pedidoId) {
-      enviarUbicacionRef.current = null
-      locationSub.current?.remove()
-      locationSub.current = null
-      return
-    }
-
-    let mounted = true
-
-    const enviarUbicacion = async (newLat: number, newLng: number) => {
-      if (!mounted) return
-
-      setLat(newLat)
-      setLng(newLng)
-      setEnviando(true)
-      setErrorMsg(null)
-
-      try {
-        const { error } = await conTimeout(
-          supabase
-            .from('ubicaciones_repartidores')
-            .upsert(
-              { pedido_id: pedidoId, repartidor_id: userId, lat: newLat, lng: newLng, updated_at: new Date().toISOString() },
-              { onConflict: 'pedido_id' }
-            ),
-          8000
-        )
-
-        if (error) {
-          setErrorMsg(`Error al enviar: ${error.message}`)
-        } else {
-          setUltimaVez(new Date())
-        }
-      } catch {
-        setErrorMsg('Tiempo de espera agotado enviando tu ubicación. Revisá tu conexión.')
-      }
-
-      if (mounted) setEnviando(false)
-    }
-
-    enviarUbicacionRef.current = enviarUbicacion
-
-    if (Platform.OS === 'web') {
-      locationSub.current = watchPositionWeb(
-        ({ lat: newLat, lng: newLng }) => {
-          if (!mounted) return
-          setGpsError(null)
-          enviarUbicacion(newLat, newLng)
-        },
-        (tipo, mensaje) => {
-          if (!mounted) return
-          setGpsError({ tipo, mensaje })
-          if (tipo === 'denied') setPermisoOk(false)
-        },
-      )
-      return () => {
-        mounted = false
-        enviarUbicacionRef.current = null
-        locationSub.current?.remove()
-        locationSub.current = null
-      }
-    }
-
-    ;(async () => {
-      locationSub.current = await Location.watchPositionAsync(
-        {
-          accuracy:         Location.Accuracy.High,
-          timeInterval:     10_000,   // 10 s
-          distanceInterval: 0,        // siempre emite por tiempo
-        },
-        loc => enviarUbicacion(loc.coords.latitude, loc.coords.longitude)
-      )
-    })()
-
-    return () => {
-      mounted = false
-      enviarUbicacionRef.current = null
-      locationSub.current?.remove()
-      locationSub.current = null
-    }
-  }, [activo, userId, pedidoId])
-
-  // ── Cleanup al desmontar ──────────────────────────────────
-  useEffect(() => {
-    return () => {
-      locationSub.current?.remove()
-    }
-  }, [])
-
-  // ── Reintentar envío manualmente tras un error/timeout ────
-  const reintentarEnvio = () => {
-    if (lat != null && lng != null) enviarUbicacionRef.current?.(lat, lng)
-  }
+  const {
+    permisoOk, gpsError, lat, lng, ultimaVez, enviando, errorMsg,
+    activo, pedidoId, pedidoEstado, pedidoError, reintentarEnvio,
+  } = useTrackingRepartidor()
 
   // ── Permiso pendiente ─────────────────────────────────────
   if (permisoOk === null) {

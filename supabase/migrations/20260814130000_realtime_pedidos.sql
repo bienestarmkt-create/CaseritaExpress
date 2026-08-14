@@ -1,0 +1,26 @@
+-- ═══════════════════════════════════════════════════════════════════════
+-- MIGRATION: agregar `pedidos` a la publicación supabase_realtime
+--
+-- DIAGNÓSTICO (ver commit del fix de tracking GPS del repartidor):
+-- ninguna de las suscripciones postgres_changes sobre `public.pedidos`
+-- (app/repartidor/pedidos.tsx, app/repartidor/mapa.tsx, y la nueva
+-- context/TrackingRepartidorContext.tsx) dispara NUNCA en producción,
+-- porque `pedidos` jamás fue agregada a la publicación `supabase_realtime`
+-- — solo `ubicaciones_repartidores` y `boletos` lo estaban (ver
+-- 20260524000000_gps_tracking.sql y 20260804000100_tabla_boletos.sql).
+-- Confirmado con un pedido de prueba real: la transición asignado→en_camino
+-- nunca llegó a un cliente ya montado escuchando ese canal.
+--
+-- Esto es la causa de fondo de por qué el tracking GPS del repartidor
+-- nunca se activaba solo al marcar "en camino" estando ya en otra
+-- pestaña (Mapa/Pedidos): el contexto que debía detectar la transición
+-- y prender el GPS jamás recibía el evento. Las pantallas lo disimulaban
+-- con actualizaciones optimistas de UI, pero ningún listener de
+-- postgres_changes sobre pedidos funcionaba de verdad.
+--
+-- Aplicar con (NO usar `supabase db push`, mismo criterio que las
+-- migraciones anteriores de este repo):
+--   npx supabase db query --linked --file supabase/migrations/20260814130000_realtime_pedidos.sql
+-- ═══════════════════════════════════════════════════════════════════════
+
+ALTER PUBLICATION supabase_realtime ADD TABLE public.pedidos;

@@ -25,6 +25,7 @@ import {
 } from 'react-native'
 import { Slot, usePathname, useRouter } from 'expo-router'
 import { supabase } from '../../lib/supabase'
+import { TrackingRepartidorProvider, useTrackingRepartidor } from '../../context/TrackingRepartidorContext'
 
 // ─── Tema (colores del repartidor existente) ─────────────────
 const C = {
@@ -58,6 +59,7 @@ export default function RepartidorLayout() {
   const [autorizado, setAutorizado] = useState(false)
   const [error,      setError]      = useState(false)
   const [nombre,     setNombre]     = useState('')
+  const [userId,     setUserId]     = useState<string | null>(null)
 
   // Evita que un await cuelgue para siempre cuando la red se queda muda
   // (mismo patrón que app/perfil.tsx y app/index.tsx).
@@ -87,6 +89,7 @@ export default function RepartidorLayout() {
       }
 
       setNombre(profile.nombre ?? user.email ?? 'Repartidor')
+      setUserId(user.id)
       setAutorizado(true)
     } catch {
       // Timeout u otro error de red — nunca redirigir a '/' por esto,
@@ -133,83 +136,125 @@ export default function RepartidorLayout() {
   // ── Web: sidebar lateral ───────────────────────────────────
   if (Platform.OS === 'web') {
     return (
-      <View style={styles.webContainer}>
-        <View style={styles.sidebar}>
-          <View style={styles.sidebarHeader}>
-            <Text style={styles.sidebarLogo}>🏍️</Text>
-            <Text style={styles.sidebarTitle}>CaseritaExpress</Text>
-            <Text style={styles.sidebarSubtitle}>Panel Repartidor</Text>
+      <TrackingRepartidorProvider userId={userId}>
+        <View style={styles.webContainer}>
+          <View style={styles.sidebar}>
+            <View style={styles.sidebarHeader}>
+              <Text style={styles.sidebarLogo}>🏍️</Text>
+              <Text style={styles.sidebarTitle}>CaseritaExpress</Text>
+              <Text style={styles.sidebarSubtitle}>Panel Repartidor</Text>
+            </View>
+
+            <ScrollView style={styles.sidebarNav} showsVerticalScrollIndicator={false}>
+              {NAV_TABS.map(tab => {
+                const active = pathname === tab.route
+                return (
+                  <TouchableOpacity
+                    key={tab.route}
+                    style={[styles.sidebarTab, active && styles.sidebarTabActive]}
+                    onPress={() => router.push(tab.route as any)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.sidebarTabIcon}>{tab.icon}</Text>
+                    <Text style={[styles.sidebarTabLabel, active && styles.sidebarTabLabelActive]}>
+                      {tab.label}
+                    </Text>
+                  </TouchableOpacity>
+                )
+              })}
+            </ScrollView>
+
+            <View style={styles.sidebarFooter}>
+              <Text style={styles.sidebarName} numberOfLines={1}>🏍️ {nombre}</Text>
+              <TouchableOpacity onPress={handleSignOut} style={styles.signOutBtn}>
+                <Text style={styles.signOutText}>Cerrar sesión</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
-          <ScrollView style={styles.sidebarNav} showsVerticalScrollIndicator={false}>
-            {NAV_TABS.map(tab => {
-              const active = pathname === tab.route
-              return (
-                <TouchableOpacity
-                  key={tab.route}
-                  style={[styles.sidebarTab, active && styles.sidebarTabActive]}
-                  onPress={() => router.push(tab.route as any)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.sidebarTabIcon}>{tab.icon}</Text>
-                  <Text style={[styles.sidebarTabLabel, active && styles.sidebarTabLabelActive]}>
-                    {tab.label}
-                  </Text>
-                </TouchableOpacity>
-              )
-            })}
-          </ScrollView>
-
-          <View style={styles.sidebarFooter}>
-            <Text style={styles.sidebarName} numberOfLines={1}>🏍️ {nombre}</Text>
-            <TouchableOpacity onPress={handleSignOut} style={styles.signOutBtn}>
-              <Text style={styles.signOutText}>Cerrar sesión</Text>
-            </TouchableOpacity>
+          <View style={styles.webContent}>
+            <AvisoTrackingGlobal />
+            <Slot />
           </View>
         </View>
-
-        <View style={styles.webContent}>
-          <Slot />
-        </View>
-      </View>
+      </TrackingRepartidorProvider>
     )
   }
 
   // ── Móvil: barra inferior ──────────────────────────────────
   return (
-    <SafeAreaView style={styles.mobileContainer}>
-      <View style={styles.mobileHeader}>
-        <Text style={styles.mobileHeaderLogo}>🏍️</Text>
-        <Text style={styles.mobileHeaderTitle}>Mis Entregas</Text>
-        <Text style={styles.mobileHeaderName} numberOfLines={1}>{nombre}</Text>
-        <TouchableOpacity onPress={handleSignOut}>
-          <Text style={styles.mobileSignOut}>Salir</Text>
-        </TouchableOpacity>
-      </View>
+    <TrackingRepartidorProvider userId={userId}>
+      <SafeAreaView style={styles.mobileContainer}>
+        <View style={styles.mobileHeader}>
+          <Text style={styles.mobileHeaderLogo}>🏍️</Text>
+          <Text style={styles.mobileHeaderTitle}>Mis Entregas</Text>
+          <Text style={styles.mobileHeaderName} numberOfLines={1}>{nombre}</Text>
+          <TouchableOpacity onPress={handleSignOut}>
+            <Text style={styles.mobileSignOut}>Salir</Text>
+          </TouchableOpacity>
+        </View>
 
-      <View style={styles.mobileContent}>
-        <Slot />
-      </View>
+        <AvisoTrackingGlobal />
 
-      <View style={styles.bottomBar}>
-        {NAV_TABS.map(tab => {
-          const active = pathname === tab.route
-          return (
-            <TouchableOpacity
-              key={tab.route}
-              style={styles.bottomTab}
-              onPress={() => router.push(tab.route as any)}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.bottomTabIcon}>{tab.icon}</Text>
-              <Text style={[styles.bottomTabLabel, active && styles.bottomTabLabelActive]}>
-                {tab.mobileLabel}
-              </Text>
-            </TouchableOpacity>
-          )
-        })}
-      </View>
-    </SafeAreaView>
+        <View style={styles.mobileContent}>
+          <Slot />
+        </View>
+
+        <View style={styles.bottomBar}>
+          {NAV_TABS.map(tab => {
+            const active = pathname === tab.route
+            return (
+              <TouchableOpacity
+                key={tab.route}
+                style={styles.bottomTab}
+                onPress={() => router.push(tab.route as any)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.bottomTabIcon}>{tab.icon}</Text>
+                <Text style={[styles.bottomTabLabel, active && styles.bottomTabLabelActive]}>
+                  {tab.mobileLabel}
+                </Text>
+              </TouchableOpacity>
+            )
+          })}
+        </View>
+      </SafeAreaView>
+    </TrackingRepartidorProvider>
+  )
+}
+
+// ─── Aviso global de tracking (CRÍTICO) ────────────────────────
+// Visible en CUALQUIER pestaña del repartidor (Pedidos/Mapa/Tracking),
+// no solo en "Tracking GPS" — ver diagnóstico en
+// context/TrackingRepartidorContext.tsx: el bug real era que nadie
+// visitaba esa pestaña durante una entrega real, así que un error ahí
+// nunca lo veía nadie. Solo se muestra si HAY un pedido en camino (si no,
+// no hay nada que transmitir todavía, no tiene sentido alarmar).
+function AvisoTrackingGlobal() {
+  const router = useRouter()
+  const { pedidoEstado, permisoOk, gpsError, errorMsg } = useTrackingRepartidor()
+
+  if (pedidoEstado !== 'en_camino') return null
+
+  let mensaje: string | null = null
+  if (permisoOk === false) {
+    mensaje = 'No podemos acceder a tu ubicación. Activala para que el cliente te siga en el mapa.'
+  } else if (gpsError && gpsError.tipo !== 'denied') {
+    mensaje = `Problema con tu GPS: ${gpsError.mensaje}`
+  } else if (errorMsg) {
+    mensaje = 'No se pudo enviar tu ubicación. El cliente no puede verte en el mapa.'
+  }
+
+  if (!mensaje) return null
+
+  return (
+    <TouchableOpacity
+      style={styles.avisoTracking}
+      onPress={() => router.push('/repartidor/tracking' as any)}
+      activeOpacity={0.8}
+    >
+      <Text style={styles.avisoTrackingText}>📍 {mensaje} Tocá para ver detalles.</Text>
+    </TouchableOpacity>
   )
 }
 
@@ -277,4 +322,11 @@ const styles = StyleSheet.create({
   bottomTabIcon:       { fontSize: 20 },
   bottomTabLabel:      { fontSize: 10, color: C.tabInactive, fontWeight: '500' },
   bottomTabLabelActive:{ color: C.tabActive, fontWeight: '700' },
+
+  // Aviso global de tracking (CRÍTICO — visible en cualquier pestaña)
+  avisoTracking: {
+    backgroundColor: '#FEF3C7', borderBottomWidth: 1, borderBottomColor: '#F59E0B',
+    paddingVertical: 10, paddingHorizontal: 16,
+  },
+  avisoTrackingText: { fontSize: 12, fontWeight: '700', color: '#92400E', textAlign: 'center' },
 })
